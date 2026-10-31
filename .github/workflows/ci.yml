@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Analyze, format, tests, and conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Analyze
+        run: mise run analyze
+      - name: Check formatting
+        run: mise run format --check
+      - name: Run normal tests
+        run: mise run test
+      # M0 has no evaluator: this gate intentionally reports the red baseline.
+      - name: Run jq conformance
+        run: mise run conformance
+
+  compile:
+    name: Compile CLI (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Compile version-only CLI
+        run: mise run compile
+
+  chrome:
+    name: Chrome core tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Run browser-safe tests
+        run: mise run web-test

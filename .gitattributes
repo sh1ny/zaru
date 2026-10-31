@@ -1,0 +1,4 @@
+* text=auto eol=lf
+test/conformance/jq.test -text
+test/conformance/man.test -text
+test/conformance/COPYING -text

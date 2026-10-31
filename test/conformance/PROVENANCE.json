@@ -1,0 +1,95 @@
+{
+  "upstream": "https://github.com/jqlang/jq",
+  "tag": "jq-1.8.2",
+  "commit": "34f7186b86743a083a589741b6cea95293524108",
+  "releaseApi": "https://api.github.com/repos/jqlang/jq/releases/latest",
+  "releaseApiTagObserved": "jq-1.8.2",
+  "retrievedOn": "2026-10-31",
+  "transport": "curl --fail --location --output from commit-pinned raw.githubusercontent.com URLs; no fixture edits, added headers, newline conversion, or regeneration",
+  "files": [
+    {
+      "path": "jq.test",
+      "upstreamPath": "tests/jq.test",
+      "url": "https://raw.githubusercontent.com/jqlang/jq/34f7186b86743a083a589741b6cea95293524108/tests/jq.test",
+      "bytes": 52230,
+      "sha256": "329689763b651096989bd8260b643731083fc5fd17f6bd7834d158713f738cbd",
+      "gitBlob": "929c7217999f392d1ac536a39bc2c81456e2e6db",
+      "activeCases": 550,
+      "origin": "upstreamTests"
+    },
+    {
+      "path": "man.test",
+      "upstreamPath": "tests/man.test",
+      "url": "https://raw.githubusercontent.com/jqlang/jq/34f7186b86743a083a589741b6cea95293524108/tests/man.test",
+      "bytes": 13647,
+      "sha256": "3c25698e94d5199c75b784cc361cda9c6775389eb61f8f4fb05fde1a757ae3f9",
+      "gitBlob": "d815fde6c3e8f16910b53d0b7443686f1b4375bb",
+      "activeCases": 231,
+      "origin": "generatedManual",
+      "trackedAtTag": true,
+      "generator": "https://github.com/jqlang/jq/blob/34f7186b86743a083a589741b6cea95293524108/docs/build_mantests.py",
+      "generatorInput": "docs/content/manual/dev/manual.yml",
+      "generationNotes": "The tracked file is vendored unchanged, not regenerated. Upstream flattens program newlines to spaces, prints one input line and one line per output, then a blank separator; regex examples go to the separate manonig.test, outside this bootstrap corpus."
+    },
+    {
+      "path": "COPYING",
+      "upstreamPath": "COPYING",
+      "url": "https://raw.githubusercontent.com/jqlang/jq/34f7186b86743a083a589741b6cea95293524108/COPYING",
+      "bytes": 7887,
+      "sha256": "ad2b4a266b2268939c1446979759706077421cf906a203aa188c6f396e8cfd74"
+    }
+  ],
+  "attribution": {
+    "copyright": "jq is copyright (C) 2012 Stephen Dolan; jq contributors",
+    "softwareLicense": "MIT, reproduced in COPYING",
+    "manualExamplesLicense": "CC BY 3.0, identified in upstream COPYING",
+    "manualExamplesLicenseUrl": "https://creativecommons.org/licenses/by/3.0/",
+    "manualSource": "https://github.com/jqlang/jq/blob/34f7186b86743a083a589741b6cea95293524108/docs/content/manual/dev/manual.yml",
+    "changes": "No changes to upstream fixture or COPYING bytes. Local parser, tests, metadata, and runner are separate files."
+  },
+  "protocol": {
+    "runner": "https://github.com/jqlang/jq/blob/34f7186b86743a083a589741b6cea95293524108/src/jq_test.c#L67-L276",
+    "drivers": ["tests/jqtest", "tests/mantest", "tests/setup"],
+    "compileFailureMarkers": ["%%FAIL", "%%FAIL IGNORE MSG"],
+    "notAnUpstreamMarker": "!!FAIL",
+    "programAndInput": "Exactly one physical line each; no fixture-level backslash continuations or multiline JSON. The immediate input line is not comment-filtered.",
+    "outputs": "Zero or more physical JSON lines until blank/comment line or EOF; duplicate outputs retained in order.",
+    "errors": "Compile failure blocks contain diagnostic lines, not input JSON. %%FAIL checks multiline diagnostics; %%FAIL IGNORE MSG ignores diagnostic matching but still requires compilation to fail.",
+    "conditionals": "There are no fixture-level conditional or version directives in this pinned runner. have_decnum checks and jq if/then/else expressions remain program text. #if-like lines are ordinary comments, never skip rules.",
+    "unsupported": "Unknown %%/!! directives remain explicit non-runnable cases. Malformed JSON or structure remains in the census. A dangling recognized directive is retained as a missingProgram case instead of being silently lost like the C runner.",
+    "json": "Raw text preserves all decimal digits and non-finite literals. Shape validation accepts a leading BOM and whole jq non-finite tokens; it never converts fixture values for execution."
+  },
+  "census": {
+    "denominator": 781,
+    "compileErrorCases": 19,
+    "emptyOutputEvaluationCases": 7,
+    "passedAtM0": 0,
+    "skipCount": 0,
+    "policy": "Every active fixture is registered as a failing conformance test until an evaluator exists. Compile rejection cannot count as a pass at M0. The report is derived from parsed cases, not this metadata census."
+  },
+  "nonRunnableArtifacts": [
+    {
+      "source": "jq.test",
+      "lines": [2174, 2175, 2176],
+      "category": "commentedOutGenerator",
+      "includedInDenominator": false,
+      "reason": "Upstream comments out this eval-dependent keyword-test recipe; the upstream runner ignores all these lines. Preserved unchanged in the vendored file."
+    },
+    {
+      "source": "jq.test",
+      "lines": [2178, 2179, 2180],
+      "category": "commentedOutGenerator",
+      "includedInDenominator": false,
+      "reason": "Second commented-out eval-dependent keyword-test recipe; not an active upstream test and not represented as a skip or pass."
+    }
+  ],
+  "executionEnvironment": {
+    "jqDriver": "Upstream supplies -L tests/modules. Module-dependent programs are retained, not excluded; module support/assets are not implemented at M0.",
+    "manualDriver": "Upstream sets PAGER=less for env.PAGER and LC_ALL=C. These programs remain in the denominator; no host environment is read by the pure-Dart parser."
+  },
+  "report": "build/conformance-report.json",
+  "commands": {
+    "infrastructure": "mise run test",
+    "conformance": "mise run conformance"
+  }
+}

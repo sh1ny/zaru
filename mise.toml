@@ -1,0 +1,32 @@
+[tools]
+dart = "latest"
+
+[tasks.test]
+description = "Run unit, CLI, and conformance infrastructure tests"
+run = "dart test --exclude-tags conformance"
+
+[tasks.analyze]
+run = "dart analyze --fatal-infos"
+
+[tasks.format]
+description = "Format Dart sources; pass --check for CI"
+run = "dart run test/support/format.dart"
+
+[tasks.conformance]
+run = "dart test test/conformance/runner_test.dart --tags conformance --reporter expanded"
+
+[tasks.bench]
+description = "Reserved until M3 is complete; no benchmarks are implemented"
+run = "echo Benchmarks are deferred until M3 is complete. && exit 2"
+
+[tasks.cli]
+run = "dart run bin/zaru.dart"
+
+[tasks.pub]
+run = "dart pub get --enforce-lockfile"
+
+[tasks.compile]
+run = "dart compile exe bin/zaru.dart"
+
+[tasks.web-test]
+run = "dart test test/unit -p chrome"

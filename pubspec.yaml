@@ -1,0 +1,17 @@
+name: zaru
+version: 0.0.0
+publish_to: none
+description: >-
+  jq for Dart. A pure-Dart implementation of the jq JSON query language,
+  conformance-tested against jq's own test suite. Library + CLI; runs on VM,
+  Flutter, web and wasm.
+repository: https://github.com/sh1ny/zaru
+issue_tracker: https://github.com/sh1ny/zaru/issues
+topics: [jq, json, query, filter, cli]
+environment:
+  sdk: ^3.9.0
+executables:
+  zaru:
+dev_dependencies:
+  lints: ^6.1.0
+  test: ^1.33.0

@@ -1,0 +1,1 @@
+No fixture skips: retain every active upstream case in the denominator; unsupported, malformed, and unimplemented cases fail and are never counted as passing.
