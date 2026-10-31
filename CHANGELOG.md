@@ -14,3 +14,5 @@
   constraints, compatibility policy, and the future API direction.
 - Configure official Dart SDK MCP contributor tooling and install official Dart
   skills. No zaru MCP product server or benchmark is implemented.
+- Isolate the SDK MCP installation cache per project to avoid cross-project
+  executable-lock failures on Windows.

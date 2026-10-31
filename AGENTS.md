@@ -70,6 +70,10 @@ resolves the project's Dart toolchain. Discover the actual advertised MCP tools
 rather than assuming that every SDK version supports the same tools. The SDK
 server assists contributors; it is not a zaru runtime dependency or a zaru MCP
 product server.
+The server uses `DART_DATA_HOME=.dart_tool/dart-data` for a project-local SDK
+installation cache. This avoids Windows executable-lock conflicts with SDK MCP
+servers already running for other projects, without changing `LOCALAPPDATA` or
+browser discovery. The cache is ignored, not committed.
 
 ## Compatibility discipline
 
