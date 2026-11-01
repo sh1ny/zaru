@@ -3,7 +3,7 @@ dart = "latest"
 
 [tasks.test]
 description = "Run unit, CLI, and conformance infrastructure tests"
-run = "dart test --exclude-tags conformance"
+run = "dart test --exclude-tags conformance,reference"
 
 [tasks.analyze]
 run = "dart analyze --fatal-infos"
@@ -14,6 +14,31 @@ run = "dart run test/support/format.dart"
 
 [tasks.conformance]
 run = "dart test test/conformance/runner_test.dart --tags conformance --reporter expanded"
+[tasks.reference-setup]
+description = "Build and verify the pinned native jq reference tools explicitly"
+run = "dart run tool/reference_setup.dart"
+
+[tasks.reference-census]
+description = "Explicitly regenerate the native jq reference census"
+run = "dart run tool/reference_census.dart --output test/conformance/reference/census.json"
+
+[tasks.reference-freeze]
+description = "Record SHA-256 integrity for the reviewed census and classification, then verify them"
+run = "dart run tool/reference_verify.dart --record"
+
+[tasks.reference-verify]
+description = "Verify the frozen reference census/classification integrity without running jq"
+run = "dart run tool/reference_verify.dart"
+
+[tasks.reference-classification]
+description = "Regenerate the source-only pinned jq grammar and builtin classification"
+run = "dart run tool/reference_classification.dart test/conformance/jq.test test/conformance/man.test test/conformance/reference/classification.json"
+[tasks.reference-test]
+description = "Run VM-only native jq reference-census integration tests"
+run = "dart test test/conformance/reference_census_test.dart --tags reference --reporter expanded"
+[tasks.classification-test]
+description = "Run source-only jq grammar and builtin classification regression tests"
+run = "dart test test/conformance/reference_classification_test.dart --tags reference --reporter expanded"
 
 [tasks.bench]
 description = "Reserved until M3 is complete; no benchmarks are implemented"
@@ -29,4 +54,9 @@ run = "dart pub get --enforce-lockfile"
 run = "dart compile exe bin/zaru.dart"
 
 [tasks.web-test]
-run = "dart test test/unit -p chrome"
+description = "Run browser-safe unit tests in Chrome using dart2js"
+run = "dart test test/unit -p chrome --compiler dart2js"
+
+[tasks.web-test-wasm]
+description = "Run browser-safe unit tests in Chrome using dart2wasm"
+run = "dart test test/unit -p chrome --compiler dart2wasm"

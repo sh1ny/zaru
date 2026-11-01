@@ -42,11 +42,45 @@ another task runner or advertise bare SDK commands in docs or CI.
 | `mise run analyze` | Run strict static analysis. |
 | `mise run format` | Format Dart sources. |
 | `mise run format --check` | Check formatting without changing sources. |
-| `mise run test` | Run normal tests, excluding tagged conformance cases. |
+| `mise run test` | Run normal tests, excluding tagged conformance and native-reference tests. |
 | `mise run conformance` | Run all pinned jq cases; intentionally fails at M0. |
+| `mise run reference-classification` | Regenerate source-only grammar/builtin classifications; does not run jq. |
+| `mise run reference-setup` | Verify the pinned jq 1.8.2 source and build jq, libjq, and the capture driver (WSL on Windows). |
+| `mise run reference-census` | Explicitly regenerate the native jq reference census; never run by tests or CI. |
+| `mise run reference-verify` | Verify frozen census/classification integrity and facts without running jq. |
+| `mise run reference-freeze` | Record digests for a reviewed regenerated baseline, then verify it. |
+| `mise run reference-test` | Run opt-in VM tests that generate a native jq reference census. |
+| `mise run classification-test` | Run opt-in VM source-only grammar/builtin classification regressions. |
 | `mise run web-test` | Run browser-safe tests in Chrome. |
+| `mise run web-test-wasm` | Run browser-safe tests in Chrome using dart2wasm. |
 | `mise run compile` | Compile the CLI on the current host. |
 | `mise run cli -- --version` | Show the M0 package version. |
+
+`mise run web-test` explicitly selects `dart2js`; `mise run web-test-wasm`
+selects `dart2wasm`. Both run the browser-safe `test/unit` suite in Chrome.
+The locked package:test Chrome runner supports both compilers. Use a compatible
+browser (currently Chrome 137+ for wasm); `dart = "latest"` is not an SDK pin.
+The task-1.6 scaffold run used mise-resolved Dart 3.13.7 and Chromium
+147.0.7727.117; both commands passed
+27 tests, with the requested compiler selected in each run. This is observed
+verification evidence, not a toolchain pin.
+
+### Milestone CI contexts
+
+The implement-core-language milestone defines exact check-run contexts:
+`checks`, `core-dart2js`, `core-dart2wasm`, `conformance-gate`, and
+`full-conformance`. The browser contexts use the mise tasks above; the gate
+runs core acceptance without jq; full-conformance covers both corpora and may
+remain red while support is incomplete. Acceptance requires every context
+except `full-conformance`. These names and roles are milestone requirements,
+not a claim of GitHub enforcement. Preserve the existing CLI contexts
+(`Compile CLI (ubuntu-latest)`, `Compile CLI (macos-latest)`, and
+`Compile CLI (windows-latest)`). The existing `checks` job retains M0
+conformance until the planned group-7 split.
+
+Live policy was checked read-only before adding these contexts: the main
+branch-protection endpoint returned 404 and the active branch-rules list was
+empty. No protection or ruleset was changed or claimed.
 
 Follow the assignment's verification scope. A delegated worker must not run
 builds, tests, analysis, or formatters unless explicitly assigned to do so; the

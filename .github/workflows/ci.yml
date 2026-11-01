@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   checks:
-    name: Analyze, format, tests, and conformance
+    name: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,8 +49,8 @@ jobs:
       - name: Compile version-only CLI
         run: mise run compile
 
-  chrome:
-    name: Chrome core tests
+  core-dart2js:
+    name: core-dart2js
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,5 +61,20 @@ jobs:
         run: mise install
       - name: Install dependencies
         run: mise run pub
-      - name: Run browser-safe tests
+      - name: Run browser-safe dart2js tests
         run: mise run web-test
+
+  core-dart2wasm:
+    name: core-dart2wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Run browser-safe dart2wasm tests
+        run: mise run web-test-wasm
