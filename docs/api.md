@@ -63,6 +63,14 @@ The jq-compatible decoder (`decodeJqJson`) and fixture oracle are internal (`lib
 
 `ZaruRuntimeError` will carry the jq error value, including `null`; runtime failures happen during iteration. `try`/`catch` and optional access handle data errors but not compile failures or lexical `break` signals. Previously yielded values remain observable. Internal unsupported-construct classification is distinct from supported semantic compile errors; an unsupported import or format operation cannot pass a fixture that expects a compile error. M2 predicate policy remains deferred: it does not create M1 support or a conformance pass.
 
+Current state: `ZaruCompileError` and `Zaru.compile` do not exist. The internal
+parser (`parseProgram` in `lib/src/syntax/parser.dart`) returns a `ParseResult`
+whose `report` (a `DiagnosticReport`) already provides the first diagnostic's
+`message`, `line`, `column`, `endLine`, `endColumn`, the ordered `rendered`
+blocks and `lastJqError`. Those are internal types; the public wrapper is
+planned work, and parse-level behavior alone does not make a compile-error
+fixture pass end to end.
+
 ## Composition and ownership
 
 Pipes within a compiled filter preserve private literal origin. Passing a public result to a later filter applies native ingestion again: binary64-compatible numbers become computed-origin, while a native integer that fails the exact binary64 round-trip takes the exact-literal exception. Use `ZaruNumber` or `runJson` when literal origin must be supplied explicitly. Container projection identity is guaranteed only for the same owned internal node; general caller-container or scalar identity is not promised. See the [architecture index](../openspec/architecture.md) and the numeric-boundary [ADR 0003](adr/0003-numeric-boundary.md).

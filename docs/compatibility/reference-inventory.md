@@ -67,3 +67,21 @@ The bytecoded `path` entry is not part of this callable allowlist. Formats (`@fo
 The stable identifier is `<source>:<program-line>` (`jq.test:<line>` or `man.test:<line>`), as exposed by `JqFixture.id`. The corpus is 550 active cases in `jq.test` plus 231 in `man.test`, 781 total; commented-out and generated-only examples are not active fixture IDs. Classification must enumerate every parsed active fixture ID, including compile-error and unsupported-directive kinds, and retain every case in that denominator. The generated per-ID classification is maintained separately from this source inventory in `test/conformance/reference/classification.json`. It records one source-backed row for every active stable ID: fixture kind, the original program and program line, grammar forms, object keys, bindings, direct names, builtin source origin, and the M1/deferred/core-undefined classification. Module-qualified names and `$ENV`/`$ARGS` remain explicit deferred dependencies; a name absent from the pinned registries is recorded as a core undefined-name case, never presumed to be an M2 builtin. Compile-error fixtures remain in the same denominator.
 
 Regenerate only with `mise run reference-classification`. The command verifies the unchanged fixture SHA-256 values and the pinned parser/lexer/builtin source hashes from `.dart_tool/reference/jq-1.8.2` before writing the manifest. It is source-only and does not invoke jq or zaru. The generated rows and source lists are evidence for classification, not observations of evaluator behavior; later reclassification requires reviewed grammar/builtin-source evidence and a diff, not a zaru failure.
+
+## Task 3.4 parser cross-check
+
+All 781 frozen `sourceEvidence.program` strings were parsed by the group-3
+parser and compared with their annotations without editing the frozen
+classification. No evaluation case is rejected by the parser; every deferred
+form (`@format`, assignment/update operators, `$__loc__`, `import`, `include`,
+`module`) matches its unsupported record, and no `M1-core-candidate` case
+contains deferred syntax. Sixteen compile-error programs fail at parse level.
+
+One annotation is imprecise: `jq.test:1988` (`%::wat`) is labelled
+`core-undefined-name-diagnostic` with `unknownCoreNames: ["wat"]`, but the pinned
+diagnostic is `syntax error, unexpected '%', expecting end of file`; no name
+lookup occurs. Both labels are core (non-deferred) classes, so the case stays in
+the core acceptance set either way. The source-only token scan has no grammar
+rule that could distinguish this case without consulting runtime evidence, so
+the frozen row is retained rather than re-fitted; the census remains the
+authority for its expected diagnostic.

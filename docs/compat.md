@@ -49,6 +49,40 @@ decimal context precision. The tests' fixture oracle compares finite numbers as
 exact decimals; that is a test-infrastructure judgment, distinct from jq's
 runtime equality.
 
+The syntax layer is a second exception, again only as an internal building
+block (`lib/src/syntax`, not exported). It lexes and parses jq programs into a
+tree and reports jq's parse-time diagnostics; no filter is compiled or run, so
+it changes no conformance result and the `0 / 781` baseline stands. What it does:
+
+- Positions are one-based UTF-8 byte offsets with exclusive ends. An excerpt
+  shows the first line of a span, with carets right-justified like jq's
+  `locfile_locate`. The end-of-file location is the last lexer piece.
+- Syntax errors name the unexpected token and, when Bison would, up to four
+  expected tokens in jq's symbol order. The parser reproduces Bison's error
+  recovery (the `error` productions, suppression of messages for the next three
+  shifts, abort at end of input), so one program can yield several ordered
+  diagnostics, including `May need parentheses around object key expression`,
+  `try .["field"] instead of .field ...`, `break requires a label ...` and
+  `Possibly unterminated 'if'/'try' statement`.
+- Constant non-string object keys (`{(0): 1}`, also in destructuring patterns),
+  non-constant or non-object module metadata and non-constant import paths are
+  reported with jq's messages, using a constant folder that follows jq's
+  `block_is_const`/`constant_fold` for literals, arrays, objects, arithmetic
+  and comparisons. Fold results that would fail at run time are not constants.
+- `@format`, assignment and update operators, `$__loc__`, `module`, `import`,
+  `include` and `ns::name` parse, and are recorded as `unsupported` constructs.
+  They are a distinct category: never a jq error, never a pass for a
+  compile-error fixture.
+- Expected-token lists and recovery spans were verified differentially against
+  403 rejected and 129 accepted programs captured from the pinned jq 1.8.2
+  (`test/unit/diagnostic_snapshots.dart`), not derived from Bison's tables, so
+  an input outside that sample may still differ.
+- Not produced at parse level: errors that jq finds only after a clean parse
+  (undefined `$name`, `f/N is not defined`, unknown label, a missing main
+  program, module lookup). Invalid numeric literals are not diagnosed. The
+  folder caps a folded string repetition at 1 MiB and treats larger ones as
+  non-constant.
+
 A compile-error fixture does not pass merely because M0 rejects all execution:
 it must eventually produce the expected compiler behavior. Unsupported behavior
 stays in the denominator. Skips require a specific documented reason in

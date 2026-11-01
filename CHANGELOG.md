@@ -10,6 +10,12 @@
   is separate from runtime equality. No jq filter is evaluated and the
   conformance baseline is unchanged.
 
+- Add an internal jq lexer, parser and diagnostic renderer (`lib/src/syntax`):
+  UTF-8 byte spans, a syntax tree, Bison-style error recovery and jq's
+  excerpt/caret rendering, constant object-key and module-metadata checks, and
+  explicit `unsupported` records for deferred syntax. Checked against captured
+  jq 1.8.2 output. Nothing is exported or evaluated; the baseline is unchanged.
+
 ## 0.0.0 — M0 bootstrap
 
 - Establish a pure-Dart package with no runtime package dependencies and a
