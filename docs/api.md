@@ -1,5 +1,7 @@
 # Planned API
 
+**Implemented so far (group 2 of `implement-core-language`): only `ZaruNumber` and `Zaru.toJson`, described under "Implemented numeric and printing surface" below. `Zaru.compile`, `run`, `runJson`, and every other declaration in this document are not available.** No `fromJson` or `runJson` stub exists.
+
 **The filter APIs described here are planned and are not available in M0.** The library currently does not compile or execute filters. These contracts are binding for the `implement-core-language` change; they are not examples of runnable declarations.
 
 ## Compile and execute
@@ -45,6 +47,15 @@ The planned decoder follows pinned jq `jv_parse`, not RFC-only `jsonDecode`: it 
 Parsing, normalization, export, and printing use explicit work stacks. The JSON parser rejects a container opening once its pending parser slots reach 10000, counting both containers and object-key slots; arrays accept depth 10000 and reject 10001, while nested keyed objects accept 5000 and reject 5001. A decoding failure raises `FormatException` on first iteration with original source and zero-based UTF-16 offset; its message includes jq's reason and one-based line/UTF-8-byte column. Native and engine-constructed containers do not inherit the parser depth budget.
 
 Engine-created lists and maps are immutable before exposure. Each immutable internal container owns and reuses one lazily created immutable public projection, so repeated yields of that internal subtree expose identical public containers without a global strong-key cache. Changed projections are distinct. Public-compatible caller-owned container storage can pass through by reference without freezing, memoization, or num-subtype conversion; caller mutation remains caller-owned and is not a snapshot guarantee. When ingestion must normalize values or keys, it rebuilds only changed paths into owned containers while retaining private numeric origin. Scalar `ZaruNumber` identity is unspecified. These projection guarantees are governed by [D8](../openspec/changes/implement-core-language/design.md#d8-bound-deep-codec-work-and-public-projection-reuse).
+
+## Implemented numeric and printing surface
+
+These two declarations exist and are exported from `package:zaru/zaru.dart`:
+
+- `final class ZaruNumber`: `ZaruNumber.parse(String)` (jq numeric grammar, no trimming; throws `FormatException` for malformed text, NaN, Infinity, or a token whose exponent overflows jq's decimal context), `String get literal` (jq canonical text, scale preserved: `100e-2` is `1.00`, `1e2` is `1E+2`), `double toDouble()` (17 significant digits half-even, then correctly rounded binary64; infinite if beyond the binary64 range), `toString()` (same as `literal`), and `==`/`hashCode` by exact decimal value regardless of scale or zero sign. It is never equal to a native number and is not `Comparable`.
+- `Zaru.toJson(Object? value, {bool compact = true, bool sortKeys = false, String indent = '  '})`. Accepts `null`, `bool`, `String`, `num`, `ZaruNumber`, `List`, and `Map` with `String` keys. Anything else, including a map with a non-`String` key, throws `ArgumentError`; only visited values are inspected. Compact output has no whitespace; pretty output follows jq (`"k": v`, empty containers as `[]`/`{}`, `indent` repeated per level, any string such as `'\t'`). `sortKeys` orders keys by code point (UTF-8 byte order). Unpaired surrogates print as U+FFFD, and map keys that normalize to the same text collapse (first position, last value). Computed numbers print with jq's spelling (`1e+17`, `1e-05`, `1.5e-07`); integral doubles print without a fraction; NaN prints `null`; infinities clamp to `+-1.7976931348623157e+308`; `-0.0` prints `-0`; `ZaruNumber` and exact native integers beyond 2^53 print exactly. A value deeper than 10000 (root is depth zero) prints as the unquoted text `<skipped: too deep>`, which makes the output non-JSON.
+
+The jq-compatible decoder (`decodeJqJson`) and fixture oracle are internal (`lib/src`, `test/support`); the decoder is reachable publicly only once `runJson` exists. `FormatException` from the decoder carries the original source, the zero-based UTF-16 `offset` of the character being scanned when jq detects the error (source length at end of input; for `Unexpected extra JSON values`, the character that completes the extra value), and a message such as `Exceeds depth limit for parsing at line 1, column 10001`. The BOM counts toward `offset` but not toward the column.
 
 ## Errors and diagnostics
 

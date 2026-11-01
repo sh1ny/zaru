@@ -39,6 +39,16 @@ path selection, updates, error semantics, and jq-compatible number handling are
 not implemented. None of these gaps is an intentional change to jq semantics.
 There is no supported filter subset, including the identity filter.
 
+The number, JSON-text decoding, and printing layers are an exception to the
+"not implemented" list only as library building blocks: `ZaruNumber`,
+`Zaru.toJson`, and an internal jq-compatible decoder exist and are covered by
+direct unit tests, not by conformance cases. They do not make any jq filter
+work and do not change the `0 / 781` baseline. Known limitation: a numeric
+literal with more than 147483648 coefficient digits is not rounded to jq's
+decimal context precision. The tests' fixture oracle compares finite numbers as
+exact decimals; that is a test-infrastructure judgment, distinct from jq's
+runtime equality.
+
 A compile-error fixture does not pass merely because M0 rejects all execution:
 it must eventually produce the expected compiler behavior. Unsupported behavior
 stays in the denominator. Skips require a specific documented reason in

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Add the public `ZaruNumber` (exact finite jq number with canonical text) and
+  `Zaru.toJson` (jq-compatible compact/indented printing, sorted keys, depth
+  truncation marker). No filter, `run`, `runJson`, or `fromJson` API exists.
+- Add private iterative jq-compatible number, JSON decoding, and Unicode
+  normalization layers, and a browser-safe exact fixture oracle for tests that
+  is separate from runtime equality. No jq filter is evaluated and the
+  conformance baseline is unchanged.
+
 ## 0.0.0 — M0 bootstrap
 
 - Establish a pure-Dart package with no runtime package dependencies and a
