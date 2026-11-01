@@ -44,7 +44,32 @@ final class CompiledProgram {
 
 /// Compiles [source] with the external variables [variables], or throws a
 /// [ZaruCompileError].
-CompiledProgram compileSource(String source, Set<String> variables) {
+CompiledProgram compileSource(String source, Set<String> variables) =>
+    guardCompileStack(() => _compile(source, variables));
+
+/// Runs [body], turning a host stack overflow into a [ZaruCompileError].
+///
+/// The syntax depth budget keeps parsing and lowering well inside the host
+/// stack, so this is the safety net for a shape the budget does not foresee:
+/// such a program still fails with a typed error rather than crashing.
+T guardCompileStack<T>(T Function() body) {
+  try {
+    return body();
+  } on StackOverflowError {
+    throw ZaruCompileError(
+      message: _tooDeepToCompile,
+      line: 0,
+      col: 0,
+      endLine: 0,
+      endCol: 0,
+      diagnostics: const ['zaru: error: $_tooDeepToCompile'],
+    );
+  }
+}
+
+const String _tooDeepToCompile = 'program is too deeply nested to compile';
+
+CompiledProgram _compile(String source, Set<String> variables) {
   final parsed = parseProgram(source);
   final parseReport = parsed.report;
   if (parseReport != null) throw _error(parseReport, unsupported: false);
@@ -416,12 +441,32 @@ final class _Lowering {
       case Alternative(:final left, :final right):
         final leftOp = lower(left, scope);
         return AlternativeOp(leftOp, lower(right, scope));
-      case Pipe(:final left, :final right):
-        final leftOp = lower(left, scope);
-        return PipeOp(leftOp, lower(right, scope));
-      case Comma(:final left, :final right):
-        final leftOp = lower(left, scope);
-        return CommaOp(leftOp, lower(right, scope));
+      case Pipe():
+        // A chain is flattened and built with loops: it is wide, not deep.
+        final stages = <Node>[];
+        Node tail = node;
+        while (tail is Pipe) {
+          stages.add(tail.left);
+          tail = tail.right;
+        }
+        final ops = [for (final stage in stages) lower(stage, scope)];
+        var result = lower(tail, scope);
+        for (var i = ops.length - 1; i >= 0; i--) {
+          result = PipeOp(ops[i], result);
+        }
+        return result;
+      case Comma():
+        final operands = <Node>[];
+        Node head = node;
+        while (head is Comma) {
+          operands.add(head.right);
+          head = head.left;
+        }
+        var result = lower(head, scope);
+        for (final operand in operands.reversed) {
+          result = CommaOp(result, lower(operand, scope));
+        }
+        return result;
       case If(:final condition, :final then, :final otherwise):
         final conditionOp = lower(condition, scope);
         final thenOp = lower(then, scope);

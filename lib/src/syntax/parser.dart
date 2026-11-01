@@ -1,5 +1,6 @@
 import '../value.dart';
 import 'ast.dart';
+import 'ast_depth.dart';
 import 'constants.dart';
 import 'diagnostic.dart';
 import 'lexer.dart';
@@ -15,6 +16,27 @@ import 'token.dart';
 /// error: it reproduces Bison's error recovery (the `error` productions, the
 /// three-shift suppression window and EOF abort) so the ordered diagnostics
 /// match jq's. See `docs/compat.md` for the supported subset.
+/// The deepest syntax nesting the parser accepts.
+///
+/// Pinned jq runs out of Bison stack ("memory exhausted") at 10000 nested
+/// parentheses or 5000 pipe steps. zaru bounds the depth far lower because
+/// parsing and lowering recurse on the host stack, which is small in
+/// browsers, and dart2wasm hangs instead of raising a stack overflow. The
+/// value is measured: the worst shape (nested string interpolation) parses,
+/// lowers and runs up to about 400 levels on dart2wasm, 600 to 800 on
+/// dart2js and 800 to 1000 on the VM, so 256 leaves headroom on all three,
+/// and every pinned fixture program is at most 12 levels deep.
+///
+/// A program is `k` levels deep when its syntax tree has height `k`: `((.))`
+/// is 3 levels, and so are `.|.|.`, `.,.,.` and `.a.b`. Anything deeper is
+/// rejected with a typed [DiagnosticKind.limit] diagnostic, never a host
+/// stack overflow. See `docs/compat.md`.
+const int maxSyntaxDepth = 256;
+
+/// The message of the diagnostic raised when [maxSyntaxDepth] is exceeded.
+const String syntaxDepthMessage =
+    'program nests deeper than $maxSyntaxDepth levels';
+
 ParseResult parseProgram(String source, {String name = '<top-level>'}) =>
     _Parser(SourceText(source, name: name)).run();
 
@@ -32,6 +54,14 @@ final class _Signal implements Exception {
   /// The offending token's span: `yylloc` at the time of the error.
   final int start;
   final int end;
+}
+
+/// The syntax depth budget was exhausted. Unlike [_Signal] it is not a
+/// recoverable syntax error: it unwinds the whole parse.
+final class _TooDeep implements Exception {
+  const _TooDeep(this.span);
+
+  final Span span;
 }
 
 /// Where a recovery region began: the shift count (to know whether any
@@ -202,6 +232,9 @@ final class _Parser {
   /// Number of tokens shifted so far.
   int _shifts = 0;
 
+  /// Current nesting depth; at most [maxSyntaxDepth].
+  int _depth = 0;
+
   /// End offset of the most recently shifted token.
   int _lastEnd = 0;
 
@@ -220,6 +253,20 @@ final class _Parser {
     _lastEnd = token.span.end;
     if (_errStatus > 0) _errStatus--;
     return token;
+  }
+
+  /// Runs [parse] one nesting level deeper, or abandons the parse when that
+  /// would pass [maxSyntaxDepth]. Every construct that can recurse without
+  /// bound (the right-recursive chains and everything that opens a bracket)
+  /// goes through here, so the host stack stays proportional to the budget.
+  T _nest<T>(T Function() parse) {
+    if (_depth >= maxSyntaxDepth) throw _TooDeep(look.span);
+    _depth++;
+    try {
+      return parse();
+    } finally {
+      _depth--;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -299,9 +346,18 @@ final class _Parser {
     Program? program;
     try {
       program = _topLevel();
+      if (_diagnostics.isEmpty) {
+        // Left-leaning chains (`.,.,.`, `1+1+1`, `.a.b.c`) add depth without
+        // parser recursion, but lowering recurses over the tree they build.
+        final deep = firstNodeBeyondDepth(program, maxSyntaxDepth);
+        if (deep != null) throw _TooDeep(Span(deep.start, deep.start + 1));
+      }
     } on _Abort {
       program = null;
     } on _Signal {
+      program = null;
+    } on _TooDeep catch (tooDeep) {
+      _fail(DiagnosticKind.limit, syntaxDepthMessage, tooDeep.span);
       program = null;
     }
     return ParseResult(
@@ -456,21 +512,35 @@ final class _Parser {
   // Queries
 
   /// Query: pipes and commas over [_queryPrimary] items.
+  ///
+  /// Comma binds tighter than pipe, and `|` is right-associative. Both chains
+  /// are read with loops, so a long chain is wide rather than deep: it uses no
+  /// host recursion and no syntax depth (an intentional improvement on jq's
+  /// right-recursive grammar). The pipe tree is still built right-nested.
   Node _query() {
-    var left = _queryPrimary();
+    final stages = <Node>[];
     while (true) {
-      if (look.kind == TokenKind.pipe) {
-        _shift();
-        final right = _query();
-        left = Pipe(_cover(left, right), left, right);
-      } else if (look.kind == TokenKind.comma) {
+      var stage = _queryPrimary();
+      while (look.kind == TokenKind.comma) {
         _shift();
         final right = _queryPrimary();
-        left = Comma(_cover(left, right), left, right);
-      } else {
-        return left;
+        stage = Comma(_cover(stage, right), stage, right);
       }
+      if (look.kind != TokenKind.pipe) {
+        return _pipeChain(stages, stage);
+      }
+      _shift();
+      stages.add(stage);
     }
+  }
+
+  /// `stages[0] | stages[1] | ... | last`, nested to the right.
+  Node _pipeChain(List<Node> stages, Node last) {
+    var result = last;
+    for (var i = stages.length - 1; i >= 0; i--) {
+      result = Pipe(_cover(stages[i], result), stages[i], result);
+    }
+    return result;
   }
 
   Span _cover(Node a, Node b) => Span(a.span.start, b.span.end);
@@ -480,7 +550,7 @@ final class _Parser {
     switch (look.kind) {
       case TokenKind.defKeyword:
         final definition = _functionDefinition();
-        final rest = _query();
+        final rest = _nest(_query);
         return DefineIn(
           Span(definition.span.start, rest.span.end),
           definition,
@@ -490,7 +560,7 @@ final class _Parser {
         final start = _shift();
         final name = _expect(TokenKind.binding).text;
         _expect(TokenKind.pipe);
-        final body = _query();
+        final body = _nest(_query);
         return Label(Span(start.span.start, body.span.end), name, body);
       default:
         final expression = _expr(0);
@@ -498,7 +568,7 @@ final class _Parser {
         _shift();
         final patterns = _patterns(TokenKind.pipe);
         _expect(TokenKind.pipe);
-        final body = _query();
+        final body = _nest(_query);
         return Bind(_cover(expression, body), expression, patterns, body);
     }
   }
@@ -538,7 +608,7 @@ final class _Parser {
     } else {
       throw _unexpected([TokenKind.colon, TokenKind.leftParen]);
     }
-    final body = _query();
+    final body = _nest(_query);
     _expect(TokenKind.semicolon, [
       TokenKind.pipe,
       TokenKind.comma,
@@ -570,8 +640,10 @@ final class _Parser {
         throw _unexpected(null);
       }
       final token = _shift();
-      final right = _expr(
-        operator.assoc == _Assoc.right ? operator.level : operator.level + 1,
+      final right = _nest(
+        () => _expr(
+          operator.assoc == _Assoc.right ? operator.level : operator.level + 1,
+        ),
       );
       final span = _cover(left, right);
       final assign = _assignOperator(kind);
@@ -649,7 +721,8 @@ final class _Parser {
     switch (look.kind) {
       case TokenKind.format:
       case TokenKind.stringStart:
-        final key = _string();
+        // Unlike `_dot`, no enclosing primary counts this string's nesting.
+        final key = _nest(_string);
         var end = key.span.end;
         var optional = false;
         if (look.kind == TokenKind.question) {
@@ -716,9 +789,9 @@ final class _Parser {
       return Index(span, target, from!, optional: optional);
     }
 
-    if (dotted) return build();
+    if (dotted) return _nest(build);
     try {
-      return build();
+      return _nest(build);
     } on _Signal catch (signal) {
       _recover(signal, mark, {TokenKind.rightBracket});
       _shift();
@@ -726,7 +799,19 @@ final class _Parser {
     }
   }
 
+  /// [_nest] written out: every bracketed construct passes through here, so
+  /// it must not add closure frames to the host stack.
   Node _primary() {
+    if (_depth >= maxSyntaxDepth) throw _TooDeep(look.span);
+    _depth++;
+    try {
+      return _primaryBody();
+    } finally {
+      _depth--;
+    }
+  }
+
+  Node _primaryBody() {
     final token = look;
     switch (token.kind) {
       case TokenKind.dot:
@@ -979,7 +1064,7 @@ final class _Parser {
         final condition = _query();
         _expect(TokenKind.thenKeyword, [TokenKind.thenKeyword, ..._pipeComma]);
         final then = _query();
-        final (otherwise, end) = _elseBody();
+        final (otherwise, end) = _nest(_elseBody);
         return (
           If(Span(start.span.start, end), condition, then, otherwise),
           end,
@@ -1262,13 +1347,15 @@ final class _Parser {
     );
   }
 
-  /// DictExpr: Expr values joined by `|`.
+  /// DictExpr: Expr values joined by `|`, read with a loop like [_query].
   Node _dictExpression() {
-    final left = _expr(0);
-    if (look.kind != TokenKind.pipe) return left;
-    _shift();
-    final right = _dictExpression();
-    return Pipe(_cover(left, right), left, right);
+    final stages = <Node>[];
+    while (true) {
+      final stage = _expr(0);
+      if (look.kind != TokenKind.pipe) return _pipeChain(stages, stage);
+      _shift();
+      stages.add(stage);
+    }
   }
 
   void _checkObjectKey(Node key) {
@@ -1302,7 +1389,9 @@ final class _Parser {
     TokenKind.leftBrace,
   ];
 
-  BindingPattern _pattern() {
+  BindingPattern _pattern() => _nest(_patternBody);
+
+  BindingPattern _patternBody() {
     final token = look;
     switch (token.kind) {
       case TokenKind.binding:

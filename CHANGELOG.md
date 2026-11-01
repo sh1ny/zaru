@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Bound syntax depth and rendered diagnostics, two intentional resource-bound
+  divergences from jq (documented in `docs/compat.md`). A program nested deeper
+  than `maxSyntaxDepth` (256) levels now fails with a typed `ZaruCompileError`
+  (`zaru: error: program nests deeper than 256 levels at <top-level>, line L,
+  column C:`) instead of a host `StackOverflowError`. The depth counts genuine
+  nesting (brackets, constructors, `if`, `reduce`, bindings, and postfix or
+  arithmetic chains such as `.a.b.c` or `1+1+1`); `|` and `,` chains do not
+  count, because the parser, lowering and constant folding now handle them with
+  loops (an intentional improvement on jq's right-recursive grammar), so a
+  10000-element array literal or 10000-step pipe chain compiles and runs. A
+  stack overflow while compiling is also converted to a typed error on the VM
+  and dart2js. A diagnostic report now renders at most
+  `maxRenderedDiagnosticBytes` (1 MiB) of text, then one
+  `zaru: error: N more diagnostics omitted` block, and a source excerpt is a
+  window of at most `maxExcerptBytes` (240) bytes with `...` cut markers.
+  Reports and lines that fit are unchanged. New `DiagnosticKind.limit`.
+
 - Record the observed M1 conformance result: **358 / 781** jq tests passing
   (0 failed, 423 unsupported, 0 not run, 0 skipped) and **352 / 352** M1
   acceptance cases. The 423 non-passing cases are all

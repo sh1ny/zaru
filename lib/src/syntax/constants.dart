@@ -72,13 +72,22 @@ Object? constantOf(Node node) {
 /// chain must lean left, and each right operand must itself be a constant
 /// element rather than another chain.
 bool _collectElements(Node body, List<Object?> out) {
+  // The chain is walked with a loop: it can be thousands of elements long.
+  final rights = <Node>[];
   var node = body;
-  while (node is Group) {
-    node = node.inner;
+  while (true) {
+    while (node is Group) {
+      node = node.inner;
+    }
+    if (node is! Comma) break;
+    rights.add(node.right);
+    node = node.left;
   }
-  if (node is Comma) {
-    if (!_collectElements(node.left, out)) return false;
-    var right = node.right;
+  final first = constantOf(node);
+  if (identical(first, notConstant)) return false;
+  out.add(first);
+  for (final element in rights.reversed) {
+    var right = element;
     while (right is Group) {
       right = right.inner;
     }
@@ -86,11 +95,7 @@ bool _collectElements(Node body, List<Object?> out) {
     final value = constantOf(right);
     if (identical(value, notConstant)) return false;
     out.add(value);
-    return true;
   }
-  final value = constantOf(node);
-  if (identical(value, notConstant)) return false;
-  out.add(value);
   return true;
 }
 

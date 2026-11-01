@@ -224,6 +224,39 @@ ever introduced it needs a specific documented reason in
   from outside every `try`/`?` around the label's body, which includes every
   jq-defined builtin and both fixture corpora, behave identically. This was
   observed against the pinned reference and is not hidden by a skip.
+- **Syntax depth is bounded (resource bound).** zaru rejects a program whose
+  syntax tree is deeper than `maxSyntaxDepth` (256) levels with a typed
+  `ZaruCompileError` (`isUnsupported` false) instead of overflowing the host
+  stack: `zaru: error: program nests deeper than 256 levels at <top-level>,
+  line L, column C:` followed by the usual excerpt and caret. Depth counts
+  genuine nesting: brackets, constructors, `if`, `reduce`, `foreach`, `try`,
+  `def` bodies, function arguments, bindings, and postfix, arithmetic,
+  comparison, logic and `//` chains such as `1+1+1` and `.a.b.c`: `((.))` and
+  `1+1` are 3 and 2 levels. Pipe (`|`) and comma (`,`) chains do not count:
+  zaru reads, lowers and evaluates them with loops, so `[0,1,...,9999]`, a
+  10000-step `.|.|...` and a 10000-entry object are accepted. This is an
+  intentional improvement over jq, whose grammar recurses per `|` and fails
+  with `memory exhausted` at 5000 pipe steps. Pinned jq also accepts deeper
+  nesting elsewhere: its Bison stack fails only at 10000 nested parentheses.
+  The bound is measured, not arbitrary: parsing, lowering and running a program
+  of the worst nesting shape (nested string interpolation) succeeds up to about 400
+  levels on dart2wasm, 600 to 800 on dart2js and 800 to 1000 on the VM, and
+  every program in both pinned corpora is at most 12 levels deep. As a safety
+  net, a host stack overflow while compiling is converted to a typed
+  `zaru: error: program is too deeply nested to compile` error on the VM and
+  dart2js; dart2wasm cannot recover from a stack overflow, so there only the
+  depth budget protects.
+- **Rendered diagnostics are bounded (resource bound).** jq renders every
+  diagnostic in full, each with its whole source line, so 20000 undefined names
+  print over a gigabyte. zaru renders at most `maxRenderedDiagnosticBytes`
+  (1 MiB) of diagnostic text per report, always including the first block, then
+  stops and appends one block, `zaru: error: N more diagnostics omitted`
+  (which never starts with `jq: error`, so `lastJqError` ignores it). It also
+  shows at most `maxExcerptBytes` (240) bytes of a source line: a longer line
+  is cut to a window around the span with `...` at each cut end and the carets
+  aligned to the window. Lines that fit, and reports that fit the budget, are
+  rendered exactly as jq does, byte for byte; `DiagnosticReport.diagnostics`
+  stays the complete structured list.
 
 ## Deliberate scope boundaries
 
@@ -235,7 +268,8 @@ See [the API direction](api.md) and [ADR 0002](adr/0002-evaluation-model.md).
 
 The CLI supports `--version` only. There is no benchmark or MCP product server,
 and the evaluator covers only the subset above. These are scope statements, not claims of jq compatibility. The
-only intentional jq-language semantic divergence is the one listed above; any
+only intentional jq-language semantic divergence is the `break` one listed
+above (the two resource bounds do not change what a program means); any
 future one must be documented explicitly and kept distinguishable from
 implementation gaps. The selected corpus measures that pinned baseline, not every possible jq
 program or all releases of jq.
