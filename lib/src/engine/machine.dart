@@ -243,6 +243,136 @@ final class NotOp extends PureOp {
   Object? valueOf(Object? input, Env? env) => !isTruthy(input);
 }
 
+/// `tostring`: strings as they are, everything else as compact JSON text.
+final class TostringOp extends PureOp {
+  const TostringOp();
+
+  @override
+  Object? valueOf(Object? input, Env? env) => stringify(input);
+}
+
+/// The bytecoded `range(start; end)`: the start value itself, then every
+/// successor by one, while it is below the end. The start varies slowest.
+final class RangeOp extends Op {
+  const RangeOp(this.from, this.to);
+
+  final Op from;
+  final Op to;
+
+  @override
+  void exec(Machine m) {
+    m.k = _RangeFromFrame(to, m.input, m.env, m.k);
+    m.op = from;
+  }
+}
+
+final class _RangeFromFrame extends Frame {
+  const _RangeFromFrame(this.to, this.input, this.env, super.next);
+
+  final Op to;
+  final Object? input;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? start) =>
+      m.evalOp(to, input, env, _RangeToFrame(start, next));
+}
+
+final class _RangeToFrame extends Frame {
+  const _RangeToFrame(this.start, super.next);
+
+  final Object? start;
+
+  @override
+  void resume(Machine m, Object? end) {
+    if (!isNumber(start) || !isNumber(end)) {
+      throw const JqError('Range bounds must be numeric');
+    }
+    final first = numberValue(start);
+    final limit = numberValue(end);
+    if (first >= limit) {
+      m.fail();
+      return;
+    }
+    m.choices.add(_RangeChoice(first + 1, limit, next));
+    m.emit(start);
+  }
+}
+
+/// The remaining counter of one `range` activation, advanced in place and
+/// pushed again for as long as the stream is pulled.
+final class _RangeChoice extends Choice {
+  _RangeChoice(this.current, this.limit, this.k);
+
+  double current;
+  final double limit;
+  final Frame? k;
+
+  @override
+  void resume(Machine m) {
+    final value = current;
+    if (value >= limit) {
+      m.fail();
+      return;
+    }
+    current = value + 1;
+    m.choices.add(this);
+    m.k = k;
+    m.emit(computed(value));
+  }
+}
+
+/// The bytecoded `last(f)`: the final output of `f`, or no output at all when
+/// `f` has none.
+final class LastOp extends Op {
+  const LastOp(this.body);
+
+  final Op body;
+
+  @override
+  void exec(Machine m) {
+    final state = _LastState();
+    m.choices.add(_LastDoneChoice(state, m.k));
+    m.k = _LastStoreFrame(state);
+    m.op = body;
+  }
+}
+
+final class _LastState {
+  bool found = false;
+  Object? value;
+}
+
+final class _LastStoreFrame extends Frame {
+  const _LastStoreFrame(this.state) : super(null);
+
+  final _LastState state;
+
+  @override
+  void resume(Machine m, Object? value) {
+    state.found = true;
+    state.value = value;
+    m.fail();
+  }
+}
+
+final class _LastDoneChoice extends Choice {
+  const _LastDoneChoice(this.state, this.k);
+
+  final _LastState state;
+  final Frame? k;
+
+  @override
+  void resume(Machine m) {
+    if (!state.found) {
+      m.fail();
+      return;
+    }
+    m.k = k;
+    m.emit(state.value);
+  }
+}
+
 /// `error` (the input is the error) and `error(f)` (each output of `f`).
 final class ErrorOp extends Op {
   const ErrorOp(this.message);
@@ -1016,34 +1146,6 @@ final class _IfFrame extends Frame {
   );
 }
 
-/// `select(f)`: the input, once for every truthy output of `f`.
-final class SelectOp extends Op {
-  const SelectOp(this.predicate);
-
-  final Op predicate;
-
-  @override
-  void exec(Machine m) {
-    m.k = _SelectFrame(m.input, m.k);
-    m.op = predicate;
-  }
-}
-
-final class _SelectFrame extends Frame {
-  const _SelectFrame(this.input, super.next);
-
-  final Object? input;
-
-  @override
-  void resume(Machine m, Object? value) {
-    if (isTruthy(value)) {
-      m.emit(input);
-    } else {
-      m.fail();
-    }
-  }
-}
-
 /// `left // right`: every truthy output of `left`; `right` only when `left`
 /// finishes without one. Errors in `left` are not suppressed.
 final class AlternativeOp extends Op {
@@ -1228,18 +1330,41 @@ final class CallOp extends Op {
   @override
   void exec(Machine m) {
     final caller = m.env;
-    var env = _cell(caller, hops);
-    for (final argument in arguments) {
-      // A parameter passed on as it is keeps its closure, so recursion that
-      // forwards its arguments does not nest a closure per level.
-      env = Env(
-        argument is ParamCallOp
-            ? _lookup(caller, argument.hops)
-            : Closure(argument, caller),
-        env,
-      );
-    }
-    m.env = env;
+    m.env = _withArguments(_cell(caller, hops), caller, arguments);
+    m.op = function.body;
+  }
+}
+
+Env? _withArguments(Env? base, Env? caller, List<Op> arguments) {
+  var env = base;
+  for (final argument in arguments) {
+    // A parameter passed on as it is keeps its closure, so recursion that
+    // forwards its arguments does not nest a closure per level.
+    env = Env(
+      argument is ParamCallOp
+          ? _lookup(caller, argument.hops)
+          : Closure(argument, caller),
+      env,
+    );
+  }
+  return env;
+}
+
+/// The anchor cell of every hosted builtin: a builtin refers to nothing of the
+/// program it is called from, so all calls share this one cell.
+const Env _builtinBase = Env(null, null);
+
+/// A call of a builtin defined in jq (see `jq_builtins.dart`). The body runs
+/// in [_builtinBase] plus one cell per argument, a tail call like [CallOp].
+final class BuiltinCallOp extends Op {
+  const BuiltinCallOp(this.function, this.arguments);
+
+  final FunctionDef function;
+  final List<Op> arguments;
+
+  @override
+  void exec(Machine m) {
+    m.env = _withArguments(_builtinBase, m.env, arguments);
     m.op = function.body;
   }
 }

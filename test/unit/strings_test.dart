@@ -4,6 +4,15 @@ import 'package:zaru/zaru.dart';
 
 import 'run_support.dart';
 
+ZaruCompileError _compileError(String source) {
+  try {
+    Zaru.compile(source);
+  } on ZaruCompileError catch (error) {
+    return error;
+  }
+  throw StateError('expected a ZaruCompileError for $source');
+}
+
 void main() {
   group('string literals', () {
     test('Escaped interpolation marker', () {
@@ -46,6 +55,43 @@ void main() {
         '"2 and 4"',
       ]);
       expect(jsonOutputs(r'"\(empty)x"', 'null'), isEmpty);
+    });
+
+    test('interpolation runs helper generators and nests escapes', () {
+      expect(jsonOutputs(r'"\(limit(2; range(5)))-\(first(10, 20))"', 'null'), [
+        '"0-10"',
+        '"1-10"',
+      ]);
+      expect(jsonOutputs(r'"a\("b\("c\(1+1)")")"', 'null'), ['"abc2"']);
+      expect(jsonOutputs(r'"\("\\(1)")"', 'null'), [r'"\\(1)"']);
+      expect(jsonOutputs(r'"\("\(1)")"', 'null'), ['"1"']);
+      expect(jsonOutputs(r'"x\([range(3)] | tostring)"', 'null'), [
+        '"x[0,1,2]"',
+      ]);
+      expect(jsonOutputs(r'"é\(1)😀"', 'null'), ['"é1😀"']);
+      expect(jsonOutputs(r'"\(select(false))a"', 'null'), isEmpty);
+      expect(jsonOutputs(r'"a\(try error("x") catch .)b"', 'null'), ['"axb"']);
+      expect(jsonOutputs(r'"\(label $f | 1, break $f)"', 'null'), ['"1"']);
+      expect(jsonOutputs(r'"\(.)"', 'null'), ['"null"']);
+    });
+
+    test('an interpolated error stops the string, and stays catchable', () {
+      expect(
+        runtimeErrorValue(Zaru.compile(r'"a\(error("x"))b"').run(null)),
+        'x',
+      );
+      expect(jsonOutputs(r'try "a\(error("x"))b" catch .', 'null'), ['"x"']);
+    });
+
+    test('interpolation is the only use of format in M1', () {
+      for (final source in [
+        r'@text "x\(1)"',
+        r'@base64 "x"',
+        r'format("text")',
+      ]) {
+        final error = _compileError(source);
+        expect(error.isUnsupported, isTrue, reason: source);
+      }
     });
   });
 }

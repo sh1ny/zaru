@@ -3,7 +3,8 @@
 /// This is the output of `jq -n 'builtins | sort'` for the pinned reference,
 /// embedded so the compiler can tell a jq builtin that this release has not
 /// implemented (an unsupported construct) from a name that is simply not
-/// defined (a jq compile error). It never makes a builtin work.
+/// defined (a jq compile error). It never makes a builtin work; only the
+/// native operations and `jq_builtins.dart` do.
 library;
 
 const Set<String> jqBuiltinNames = {

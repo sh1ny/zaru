@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add the M1 helper set and recursive descent: `..`, `recurse/0,1,2`,
+  `range/1,2,3`, `while`, `until`, `limit`, `skip`, `first/0,1`, `last/0,1`,
+  `nth/1,2`, `repeat`, `tostring` and `error/1`/`select` as the jq definitions.
+  The jq-coded ones are the verbatim `src/builtin.jq` text of jq 1.8.2 (commit
+  `34f7186b86743a083a589741b6cea95293524108`, MIT) hosted by the compiler and
+  lowered only when referenced; `empty`, `not`, `error/0`, `tostring`, `range/2`
+  and `last/1` are native. Million-step recursive helpers and `..` over a
+  10001-deep array run in constant host stack on the VM, dart2js and dart2wasm.
+  Every other jq builtin, `@format`, `$__loc__`, assignment and modules remain
+  unsupported. The `0 / 781` baseline is unchanged because the harness is not
+  connected.
+
 - Add lexical functions and control flow to the core engine: `def` with filter
   and `$value` parameters (recursion, shadowing, closures over the call site,
   tail calls that keep constant continuation state), `reduce` and `foreach`

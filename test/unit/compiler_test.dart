@@ -228,12 +228,12 @@ jq: error: foo/2 is not defined at <top-level>, line 1, column 5:
         'include "x"; .',
         'def f: length; f',
         'reduce .[] as \$x (0; length)',
-        'foreach .[] as \$x (0; . + \$x; ..)',
-        'label \$out | ..',
-        '..',
+        'foreach .[] as \$x (0; . + \$x; length)',
+        'label \$out | add',
         'map(.)',
         'length',
-        'range(3)',
+        'infinite',
+        'range(3) | keys',
         r'. as [$a] | length',
       ]) {
         final error = compileError(source);

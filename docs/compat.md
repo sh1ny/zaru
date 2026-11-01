@@ -46,7 +46,14 @@ arithmetic, comparison, `and`/`or`/`not`, `//`, `if`/`elif`/`else`,
 `try`/`catch`, string interpolation, `as` bindings with array/object
 destructuring and `?//` alternatives, `reduce`, `foreach`, `def` with filter and
 `$value` parameters (recursion, shadowing, closures), `label`/`break`, external
-variables, and the builtins `empty`, `error`, `error(f)`, `not` and `select(f)`.
+variables, `..`, and the builtins `empty`, `not`, `error/0,1`, `tostring`,
+`select`, `recurse/0,1,2`, `range/1,2,3`, `while`, `until`, `limit`, `skip`,
+`first/0,1`, `last/0,1`, `nth/1,2` and `repeat`. Interpolation is the only use of
+the text format; `format` itself is not a public callable. The jq-coded ones run
+the verbatim `builtin.jq` definitions (see
+[builtin provenance](compatibility/builtin-provenance.md)), so `repeat(f)` is the
+pinned `def _repeat: f, _repeat;`, which applies `f` to the same input again and
+again (`1 | limit(3; repeat(. * 2))` is `2, 2, 2`).
 Their error messages, generator order and the depth/size limits (equality,
 ordering and merge at depth 10000; string repetition below 2147483647 UTF-8
 bytes) follow the pinned jq. Known behavior to keep in mind: errors in the left
@@ -54,10 +61,10 @@ side of `//` are not suppressed (as in the pinned jq), and a slice or index
 with a fractional or out-of-range bound follows jq's clamping and truncation.
 
 Not implemented, and therefore compile-time *unsupported* errors rather than
-results: `..`, every builtin other than the five above (including the
-jq-defined helpers `range`, `map`, `recurse`, `limit`, `first`, ..., which are
-still to be ported; jq's own `builtins` list is embedded only to tell these
-apart from undefined names), assignment and update operators, `@format`, `$__loc__`,
+results: every builtin outside the list above (including `map`, `length`,
+`keys`, `add`, `infinite`, `isempty`, `all`, `any` and `path`; jq's own
+`builtins` list is embedded only to tell these apart from undefined names),
+assignment and update operators, `@format`, `$__loc__`,
 `$ENV`, path expressions, modules, input/output builtins, and the CLI. None of
 these gaps is an intentional change to jq semantics. An unsupported source can
 never satisfy a compile-error fixture: its diagnostics start with

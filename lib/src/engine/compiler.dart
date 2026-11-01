@@ -15,7 +15,8 @@
 ///    `zaru: unsupported:` and so can never be mistaken for a jq diagnostic.
 ///
 /// Only when all three are clear is an operation tree produced. A jq builtin
-/// that is not natively implemented is never treated as defined.
+/// that is neither native nor hosted from `jq_builtins.dart` is never treated
+/// as defined.
 library;
 
 import 'dart:convert';
@@ -28,6 +29,7 @@ import '../syntax/parse_result.dart';
 import '../syntax/parser.dart';
 import '../syntax/span.dart';
 import 'builtin_names.dart';
+import 'jq_builtins.dart';
 import 'machine.dart';
 
 /// A compiled program: the operation tree and the declared external names.
@@ -338,7 +340,7 @@ final class _Lowering {
       case Identity():
         return _identity;
       case RecurseDefault():
-        return _defer(UnsupportedKind.recursiveDescent, node.span);
+        return BuiltinCallOp(_builtin('recurse/0')!.runtime, const []);
       case LiteralConstant():
       case NumberLiteral():
         return ConstOp(constantOf(node));
@@ -532,6 +534,28 @@ final class _Lowering {
     return _placeholder;
   }
 
+  /// The hosted jq-coded builtins met so far, lowered once per compilation.
+  final Map<String, FunctionInfo> _hosted = {};
+
+  /// The definition of the hosted builtin [signature], lowering it (and what
+  /// it uses) on first use, or null when jq-coded source is not hosted for it.
+  ///
+  /// A builtin is closed over the other builtins only: it is lowered in the
+  /// root scope, outside the program's own compilation units, so the
+  /// program's definitions can neither capture nor shadow what it calls.
+  FunctionInfo? _builtin(String signature) {
+    final known = _hosted[signature];
+    if (known != null) return known;
+    final source = jqCodedBuiltins[signature];
+    if (source == null) return null;
+    final parsed = parseProgram('$source .');
+    final definition = (parsed.program!.body! as DefineIn).definition;
+    final info = FunctionInfo(definition, const Scope.root());
+    _hosted[signature] = info;
+    _lowerBody(info);
+    return info;
+  }
+
   Op _lowerCall(Call node, Scope scope) {
     final name = node.name;
     final arity = node.arguments.length;
@@ -558,10 +582,20 @@ final class _Lowering {
         return const NotOp();
       case 'error/0':
         return const ErrorOp(null);
-      case 'error/1':
-        return ErrorOp(lower(node.arguments.single, scope));
-      case 'select/1':
-        return SelectOp(lower(node.arguments.single, scope));
+      case 'tostring/0':
+        return const TostringOp();
+      case 'range/2':
+        // The bytecoded range: jq compiles the start before the end.
+        final from = _lowerArgument(node.arguments[0], scope);
+        return RangeOp(from, _lowerArgument(node.arguments[1], scope));
+      case 'last/1':
+        return LastOp(_lowerArgument(node.arguments.single, scope));
+    }
+    final hosted = _builtin(signature);
+    if (hosted != null) {
+      return BuiltinCallOp(hosted.runtime, [
+        for (final argument in node.arguments) _lowerArgument(argument, scope),
+      ]);
     }
     if (jqBuiltinNames.contains(signature)) {
       for (final argument in node.arguments) {

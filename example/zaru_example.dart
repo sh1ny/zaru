@@ -49,6 +49,16 @@ void main() {
     '${Zaru.toJson(tally.run([{'a': 1}, {'a': 2}, {'a': 3}]).single)}',
   );
 
+  // 6c. The jq-coded helpers (range, limit, first, recurse, repeat, ...) are
+  // jq's own definitions, and stay lazy: a huge generator is fine as long as
+  // only a prefix is pulled.
+  final prefix = Zaru.compile('[limit(5; range(0; 1e18; 3))]');
+  print('huge range prefix: ${Zaru.toJson(prefix.run(null).single)}');
+  final descent = Zaru.compile('[.. | select(. == 2)]');
+  print('recursive descent: ${Zaru.toJson(descent.run([1, [2, {'a': 2}]]).single)}');
+  final million = Zaru.compile(r'last(range(0; 1000000; 1))');
+  print('a million-step recursion: ${Zaru.toJson(million.run(null).single)}');
+
   // 7. Declare external variables at compile time; bind them for each run.
   final above = Zaru.compile(r'[.[] | select(. > $min)]', variables: {'min'});
   print('above 1: ${Zaru.toJson(above.run([1, 2, 3], args: {'min': 1}).single)}');
