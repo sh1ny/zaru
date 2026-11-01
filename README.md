@@ -5,9 +5,9 @@ engine yet, so the baseline is unchanged; see [compatibility](docs/compat.md)).
 zaru is bootstrapping a pure-Dart jq-compatible library and command-line tool.
 The core is designed for the Dart VM and browsers, with no `dart:io` imports and
 zero runtime package dependencies. **The library now evaluates a small core of
-jq (listed below); it is not a complete jq.** Most builtins, user-defined
-functions, `reduce`/`foreach`, paths and assignment are not implemented, and
-they fail at compile time instead of pretending to work.
+jq (listed below); it is not a complete jq.** Most builtins, paths and
+assignment are not implemented, and they fail at compile time instead of
+pretending to work.
 
 ## What is available
 
@@ -18,11 +18,11 @@ they fail at compile time instead of pretending to work.
   iterators. Supported jq: identity, `.name`, `.[expr]`, slices, `.[]` and the
   `?` forms, literals (numbers keep their exact text), array and object
   construction, `|` and `,`, arithmetic, comparison, `and`/`or`/`not`, `//`,
-  `if`/`elif`/`else`, `try`/`catch`, string interpolation, `expr as $x | ...`
-  with a single variable, external `$variables`, and the builtins `empty`,
-  `error`, `error(f)`, `not` and `select(f)`.
-- Not yet available: `def`, `reduce`, `foreach`, `label`/`break`,
-  destructuring and `?//`, `..`, every other builtin (`map`, `length`, `range`,
+  `if`/`elif`/`else`, `try`/`catch`, string interpolation, `expr as pattern |
+  ...` with destructuring and `?//`, `def` with filter and `$value` parameters,
+  `reduce`, `foreach`, `label`/`break`, external `$variables`, and the builtins
+  `empty`, `error`, `error(f)`, `not` and `select(f)`.
+- Not yet available: `..`, every other builtin (`map`, `length`, `range`,
   ...), assignment and update operators, `@format`, `$__loc__`, `$ENV` and
   modules. Compiling any of them throws `ZaruCompileError` with
   `isUnsupported` set, never a result. See `example/zaru_example.dart`

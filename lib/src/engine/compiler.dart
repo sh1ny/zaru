@@ -6,7 +6,10 @@
 ///    key of the wrong type): a jq compile error;
 /// 2. name resolution finds an undefined variable, function or label: a jq
 ///    semantic compile error, reported in the order jq compiles the
-///    expression (an index reports its key before its target);
+///    expression (an index reports its key before its target). As in jq, the
+///    body of a function and each filter argument of a call form their own
+///    compilation unit: their names are checked only when the enclosing code
+///    has no error, and a definition that nothing uses is dropped unchecked;
 /// 3. the source is valid jq but uses a construct or builtin this release does
 ///    not implement: an *unsupported* error, whose blocks start with
 ///    `zaru: unsupported:` and so can never be mistaken for a jq diagnostic.
@@ -45,7 +48,7 @@ CompiledProgram compileSource(String source, Set<String> variables) {
   if (parseReport != null) throw _error(parseReport, unsupported: false);
 
   final declared = variables.toList(growable: false);
-  final lowering = _Lowering(declared);
+  final lowering = _Lowering();
   lowering.unsupported.addAll(parsed.unsupported);
   final program = parsed.program!;
   Scope scope = const Scope.root();
@@ -53,12 +56,11 @@ CompiledProgram compileSource(String source, Set<String> variables) {
     scope = scope.withVariable(name);
   }
   final Op root = lowering.lowerProgram(program, scope);
+  lowering.lowerReferencedBodies();
 
-  if (lowering.semantic.isNotEmpty) {
-    throw _error(
-      DiagnosticReport(parsed.source, lowering.semantic),
-      unsupported: false,
-    );
+  final semantic = lowering.semanticDiagnostics();
+  if (semantic.isNotEmpty) {
+    throw _error(DiagnosticReport(parsed.source, semantic), unsupported: false);
   }
   if (lowering.unsupported.isNotEmpty) {
     final ordered = [...lowering.unsupported]
@@ -86,66 +88,129 @@ ZaruCompileError _error(DiagnosticReport report, {required bool unsupported}) =>
 
 enum _Kind { variable, function, label }
 
+/// One user definition, as the compiler tracks it.
+final class FunctionInfo {
+  FunctionInfo(this.definition, this.scope)
+    : runtime = FunctionDef(definition.name);
+
+  final FunctionDefinition definition;
+
+  /// The scope the definition appears in (it does not yet contain itself).
+  final Scope scope;
+
+  /// The runtime body holder that calls point at.
+  final FunctionDef runtime;
+
+  /// The compilation unit of the body.
+  late final CompilationUnit level = CompilationUnit(this);
+
+  /// Whether code that is itself used calls this function.
+  bool referenced = false;
+
+  /// Whether the body has been lowered.
+  bool lowered = false;
+}
+
+/// A compilation unit: the main program, a function body, or the argument
+/// closure of a call. jq checks the names of a unit's nested units only when
+/// the unit itself is free of errors.
+final class CompilationUnit {
+  CompilationUnit(this.function);
+
+  /// The definition this unit is the body of, if any.
+  final FunctionInfo? function;
+  final List<Diagnostic> errors = [];
+  final List<CompilationUnit> children = [];
+
+  /// Whether this unit is part of the compiled program: an argument closure
+  /// always is, a definition only when something uses it.
+  bool get isLive => function == null || function!.referenced;
+}
+
+/// A resolved function name: how far away its cell is and, for a definition,
+/// the definition (a filter parameter has none).
+typedef FunctionRef = ({int hops, FunctionInfo? info});
+
 /// The lexical scope at a point of the source: an immutable list of bindings.
+///
+/// Every binding occupies one cell of the runtime environment: a variable, a
+/// function definition, a filter parameter or a label activation. A name
+/// resolves to the number of cells between the use and its binding.
 final class Scope {
   const Scope.root()
     : parent = null,
       _kind = null,
       name = '',
       arity = 0,
-      variableCount = 0;
+      depth = 0,
+      function = null;
 
   const Scope._(
     this.parent,
     this._kind,
     this.name,
     this.arity,
-    this.variableCount,
-  );
+    this.depth, {
+    this.function,
+  });
 
   final Scope? parent;
   final _Kind? _kind;
   final String name;
   final int arity;
 
-  /// Variables bound at or below this entry.
-  final int variableCount;
+  /// Cells in the environment at or below this binding.
+  final int depth;
+
+  /// The definition this function binding stands for; null for a parameter.
+  final FunctionInfo? function;
 
   Scope withVariable(String variable) =>
-      Scope._(this, _Kind.variable, variable, 0, variableCount + 1);
+      Scope._(this, _Kind.variable, variable, 0, depth + 1);
 
-  Scope withFunction(String function, int parameters) =>
-      Scope._(this, _Kind.function, function, parameters, variableCount);
+  Scope withFunction(String name, int parameters, FunctionInfo info) => Scope._(
+    this,
+    _Kind.function,
+    name,
+    parameters,
+    depth + 1,
+    function: info,
+  );
+
+  /// A filter parameter: a function of no parameters without a definition.
+  Scope withParameter(String parameter) =>
+      Scope._(this, _Kind.function, parameter, 0, depth + 1);
 
   Scope withLabel(String label) =>
-      Scope._(this, _Kind.label, label, 0, variableCount);
+      Scope._(this, _Kind.label, label, 0, depth + 1);
 
   /// Hops from the current environment to the variable [variable], or null.
   int? variableHops(String variable) {
     for (var s = this; s._kind != null; s = s.parent!) {
       if (s._kind == _Kind.variable && s.name == variable) {
-        return variableCount - s.variableCount;
+        return depth - s.depth;
       }
     }
     return null;
   }
 
-  bool hasFunction(String function, int parameters) {
+  FunctionRef? lookupFunction(String function, int parameters) {
     for (var s = this; s._kind != null; s = s.parent!) {
       if (s._kind == _Kind.function &&
           s.name == function &&
           s.arity == parameters) {
-        return true;
+        return (hops: depth - s.depth, info: s.function);
       }
     }
-    return false;
+    return null;
   }
 
-  bool hasLabel(String label) {
+  /// Hops from the current environment to the label [label], or null.
+  int? labelHops(String label) {
     for (var s = this; s._kind != null; s = s.parent!) {
-      if (s._kind == _Kind.label && s.name == label) return true;
+      if (s._kind == _Kind.label && s.name == label) return depth - s.depth;
     }
-    return false;
+    return null;
   }
 }
 
@@ -153,14 +218,18 @@ const Op _identity = IdentityOp();
 const Op _placeholder = ConstOp(null);
 
 final class _Lowering {
-  _Lowering(this.declared);
-
-  final List<String> declared;
-  final List<Diagnostic> semantic = [];
   final List<UnsupportedConstruct> unsupported = [];
 
+  /// The unit being lowered, and the definition whose body it is (if any).
+  final CompilationUnit _root = CompilationUnit(null);
+  late CompilationUnit _level = _root;
+  FunctionInfo? _current;
+
+  /// Every definition met so far, in source order.
+  final List<FunctionInfo> _definitions = [];
+
   void _undefined(String what, Span span) =>
-      semantic.add(Diagnostic(DiagnosticKind.semantic, what, span));
+      _level.errors.add(Diagnostic(DiagnosticKind.semantic, what, span));
 
   Op _defer(UnsupportedKind kind, Span span, [String? detail]) {
     unsupported.add(UnsupportedConstruct(kind, span, detail));
@@ -168,29 +237,98 @@ final class _Lowering {
   }
 
   Op lowerProgram(Program program, Scope scope) {
-    for (final definition in program.definitions) {
-      _lowerDefinition(definition, scope);
-    }
     final body = program.body;
-    if (program.definitions.isNotEmpty && body == null) return _placeholder;
-    return body == null ? _identity : lower(body, scope);
+    if (body == null) {
+      if (program.definitions.isEmpty) return _identity;
+      // jq's own message for a library without a main expression.
+      _undefined('Top-level program not given (try ".")', Span.unknown);
+      return _placeholder;
+    }
+    return lower(body, scope);
   }
 
-  void _lowerDefinition(FunctionDefinition definition, Scope scope) {
-    _defer(
-      UnsupportedKind.functionDefinition,
-      definition.span,
-      definition.name,
-    );
-    var inner = scope.withFunction(
+  /// Lowers the body of every definition something uses. A body can use
+  /// another definition, so this runs until no new definition becomes used.
+  void lowerReferencedBodies() {
+    var progress = true;
+    while (progress) {
+      progress = false;
+      for (var i = 0; i < _definitions.length; i++) {
+        final info = _definitions[i];
+        if (info.referenced && !info.lowered) {
+          _lowerBody(info);
+          progress = true;
+        }
+      }
+    }
+  }
+
+  /// The semantic diagnostics in jq's order: a unit's own errors first, then,
+  /// only if it has none, those of its nested units in source order.
+  List<Diagnostic> semanticDiagnostics() {
+    final all = <Diagnostic>[];
+    void collect(CompilationUnit level) {
+      all.addAll(level.errors);
+      if (level.errors.isNotEmpty) return;
+      for (final child in level.children) {
+        if (child.isLive) collect(child);
+      }
+    }
+
+    collect(_root);
+    return all;
+  }
+
+  FunctionInfo _define(FunctionDefinition definition, Scope scope) {
+    final info = FunctionInfo(definition, scope);
+    _level.children.add(info.level);
+    _definitions.add(info);
+    return info;
+  }
+
+  void _lowerBody(FunctionInfo info) {
+    info.lowered = true;
+    final savedLevel = _level;
+    final savedCurrent = _current;
+    _level = info.level;
+    _current = info;
+
+    final definition = info.definition;
+    var inner = info.scope.withFunction(
       definition.name,
       definition.parameters.length,
+      info,
     );
     for (final parameter in definition.parameters) {
-      inner = inner.withFunction(parameter.name, 0);
-      if (parameter.isValue) inner = inner.withVariable(parameter.name);
+      inner = inner.withParameter(parameter.name);
     }
-    lower(definition.body, inner);
+    // `def f($a; $b): body` is `def f(a; b): a as $a | b as $b | body`, so the
+    // first value parameter varies slowest.
+    final bindings = <int>[];
+    for (final parameter in definition.parameters) {
+      if (!parameter.isValue) continue;
+      bindings.add(inner.lookupFunction(parameter.name, 0)!.hops);
+      inner = inner.withVariable(parameter.name);
+    }
+    var body = lower(definition.body, inner);
+    for (var i = bindings.length - 1; i >= 0; i--) {
+      body = BindOp(ParamCallOp(bindings[i]), body);
+    }
+    info.runtime.body = body;
+
+    _level = savedLevel;
+    _current = savedCurrent;
+  }
+
+  /// Lowers the filter argument of a call as its own compilation unit.
+  Op _lowerArgument(Node argument, Scope scope) {
+    final saved = _level;
+    final unit = CompilationUnit(null);
+    saved.children.add(unit);
+    _level = unit;
+    final op = lower(argument, scope);
+    _level = saved;
+    return op;
   }
 
   Op lower(Node node, Scope scope) {
@@ -215,11 +353,12 @@ final class _Lowering {
       case Call():
         return _lowerCall(node, scope);
       case Break(:final label):
-        if (!scope.hasLabel(label)) {
+        final hops = scope.labelHops(label);
+        if (hops == null) {
           _undefined('\$*label-$label is not defined', node.span);
           return _placeholder;
         }
-        return _defer(UnsupportedKind.label, node.span);
+        return BreakOp(hops);
       case Index(:final target, :final key, :final optional):
         // jq compiles the key before the target, and reports names in that
         // order.
@@ -279,10 +418,11 @@ final class _Lowering {
         final elseOp = otherwise == null ? _identity : lower(otherwise, scope);
         return IfOp(conditionOp, thenOp, elseOp);
       case Reduce(:final source, :final patterns, :final init, :final update):
-        lower(source, scope);
-        lower(init, scope);
-        lower(update, _bindPatterns(patterns, scope));
-        return _defer(UnsupportedKind.reduce, node.span);
+        // jq compiles the initial state before the loop.
+        final initOp = lower(init, scope);
+        final sourceOp = lower(source, scope);
+        final (binder, inner) = _binder(patterns, scope);
+        return ReduceOp(sourceOp, binder, initOp, lower(update, inner));
       case Foreach(
         :final source,
         :final patterns,
@@ -290,64 +430,75 @@ final class _Lowering {
         :final update,
         :final extract,
       ):
-        lower(source, scope);
-        lower(init, scope);
-        final inner = _bindPatterns(patterns, scope);
-        lower(update, inner);
-        if (extract != null) lower(extract, inner);
-        return _defer(UnsupportedKind.foreach, node.span);
+        final initOp = lower(init, scope);
+        final sourceOp = lower(source, scope);
+        final (binder, inner) = _binder(patterns, scope);
+        final updateOp = lower(update, inner);
+        final extractOp = extract == null ? null : lower(extract, inner);
+        return ForeachOp(sourceOp, binder, initOp, updateOp, extractOp);
       case Bind(:final source, :final patterns, :final body):
         final sourceOp = lower(source, scope);
-        final inner = _bindPatterns(patterns, scope);
-        final bodyOp = lower(body, inner);
         if (patterns.length == 1 && patterns.single is VariablePattern) {
-          return BindOp(sourceOp, bodyOp);
+          final variable = (patterns.single as VariablePattern).name;
+          return BindOp(sourceOp, lower(body, scope.withVariable(variable)));
         }
-        return _defer(UnsupportedKind.destructuring, node.span);
+        final (binder, inner) = _binder(patterns, scope);
+        return DestructureOp(sourceOp, binder, lower(body, inner));
       case Label(:final name, :final body):
-        lower(body, scope.withLabel(name));
-        return _defer(UnsupportedKind.label, node.span);
+        return LabelOp(lower(body, scope.withLabel(name)));
       case DefineIn(:final definition, :final rest):
-        _lowerDefinition(definition, scope);
-        lower(
+        final info = _define(definition, scope);
+        final restOp = lower(
           rest,
-          scope.withFunction(definition.name, definition.parameters.length),
+          scope.withFunction(
+            definition.name,
+            definition.parameters.length,
+            info,
+          ),
         );
-        return _placeholder;
+        return DefineOp(restOp);
     }
   }
 
-  /// Extends [scope] with every variable that [patterns] bind, resolving
-  /// the key expressions inside them against the extended scope.
-  Scope _bindPatterns(List<BindingPattern> patterns, Scope scope) {
-    var inner = scope;
-    final keys = <Node>[];
-    final names = <String>[];
-    void collect(BindingPattern pattern) {
+  /// Compiles the alternatives of a destructuring binding and returns them
+  /// with [scope] extended by every variable they bind (one cell per distinct
+  /// name, in order of first appearance).
+  ///
+  /// Key expressions are lowered in the scope *outside* the binding, as jq
+  /// binds the pattern's variables only in the body.
+  (Binder, Scope) _binder(List<BindingPattern> patterns, Scope scope) {
+    final slots = <String, int>{};
+    int slotOf(String name) => slots.putIfAbsent(name, () => slots.length);
+
+    Matcher build(BindingPattern pattern) {
       switch (pattern) {
         case VariablePattern(:final name):
-          names.add(name);
+          return VarMatcher(slotOf(name));
         case ArrayPattern(:final elements):
-          elements.forEach(collect);
+          return ArrayMatcher([for (final element in elements) build(element)]);
         case ObjectPattern(:final entries):
-          for (final entry in entries) {
-            keys.add(entry.key);
-            final bound = entry.bindsKey;
-            if (bound != null) names.add(bound);
-            final value = entry.value;
-            if (value != null) collect(value);
-          }
+          return ObjectMatcher([
+            for (final entry in entries)
+              () {
+                final key = lower(entry.key, scope);
+                final bound = entry.bindsKey;
+                final value = entry.value;
+                return ObjectEntryMatcher(
+                  key,
+                  bindSlot: bound == null ? null : slotOf(bound),
+                  sub: value == null ? null : build(value),
+                );
+              }(),
+          ]);
       }
     }
 
-    patterns.forEach(collect);
-    for (final name in names) {
+    final alternatives = [for (final pattern in patterns) build(pattern)];
+    var inner = scope;
+    for (final name in slots.keys) {
       inner = inner.withVariable(name);
     }
-    for (final key in keys) {
-      lower(key, inner);
-    }
-    return inner;
+    return (Binder(alternatives, slots.length), inner);
   }
 
   Op _lowerString(StringLiteral node, Scope scope) {
@@ -389,11 +540,16 @@ final class _Lowering {
       node.span.start,
       node.span.start + utf8.encode(name).length,
     );
-    if (scope.hasFunction(name, arity)) {
-      for (final argument in node.arguments) {
-        lower(argument, scope);
-      }
-      return _defer(UnsupportedKind.functionDefinition, nameSpan, signature);
+    final found = scope.lookupFunction(name, arity);
+    if (found != null) {
+      final info = found.info;
+      // A filter parameter takes no arguments, so it is a call by itself.
+      if (info == null) return ParamCallOp(found.hops);
+      // A definition's own body does not make it used.
+      if (!identical(info, _current)) info.referenced = true;
+      return CallOp(found.hops, info.runtime, [
+        for (final argument in node.arguments) _lowerArgument(argument, scope),
+      ]);
     }
     switch (signature) {
       case 'empty/0':
@@ -409,14 +565,12 @@ final class _Lowering {
     }
     if (jqBuiltinNames.contains(signature)) {
       for (final argument in node.arguments) {
-        lower(argument, scope);
+        _lowerArgument(argument, scope);
       }
       return _defer(UnsupportedKind.builtin, nameSpan, signature);
     }
+    // jq does not compile the arguments of a call it cannot resolve.
     _undefined('$signature is not defined', nameSpan);
-    for (final argument in node.arguments) {
-      lower(argument, scope);
-    }
     return _placeholder;
   }
 }

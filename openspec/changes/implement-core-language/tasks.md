@@ -138,8 +138,8 @@ All scenarios are planned and unimplemented. `red` is not a claim of an observed
 
 ## 5. Implement lexical functions, reductions and control/error flow
 
-- [ ] 5.1 Add failing tests for filter/value parameters, recursive/shadowed definitions, lexical captures, destructuring alternatives, reduce/foreach branching, labels/break, catch/optional errors, error(null), prior output before failure, terminal failed iterators and yielded accumulator isolation. Observe targeted failures and probe uncertain behavior with pinned jq rather than guessing Dart conventions.
-- [ ] 5.2 Implement lexical resolution/invocation, explicit continuations, reduction/extraction and typed data errors versus lexical break signals. Verify mapped function/control/error rows, reference-recorded destructuring failures, immutable suspended values, and post-error moveNext returning false without replay. Update API/compatibility docs and CHANGELOG.md with the implemented behavior.
+- [x] 5.1 Add failing tests for filter/value parameters, recursive/shadowed definitions, lexical captures, destructuring alternatives, reduce/foreach branching, labels/break, catch/optional errors, error(null), prior output before failure, terminal failed iterators and yielded accumulator isolation. Observe targeted failures and probe uncertain behavior with pinned jq rather than guessing Dart conventions.
+- [x] 5.2 Implement lexical resolution/invocation, explicit continuations, reduction/extraction and typed data errors versus lexical break signals. Verify mapped function/control/error rows, reference-recorded destructuring failures, immutable suspended values, and post-error moveNext returning false without replay. Update API/compatibility docs and CHANGELOG.md with the implemented behavior.
 
 ## 6. Implement stack-safe helpers, descent and interpolation
 

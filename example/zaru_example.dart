@@ -38,6 +38,17 @@ void main() {
   print('caught: ${Zaru.toJson(safe.run([1, 2]).single)}');
   print('alternative: ${Zaru.toJson(Zaru.compile('.a // "none"').run({}).single)}');
 
+  // 6b. Definitions, reduce, foreach, destructuring and label/break run too.
+  final tally = Zaru.compile(
+    r'def total(f): reduce .[] as $x (0; . + ($x | f)); '
+    r'[total(.a), (foreach .[] as {a: $a} (0; . + $a)), '
+    r'(label $stop | .[] | if .a > 1 then break $stop else .a end)]',
+  );
+  print(
+    'definitions and loops: '
+    '${Zaru.toJson(tally.run([{'a': 1}, {'a': 2}, {'a': 3}]).single)}',
+  );
+
   // 7. Declare external variables at compile time; bind them for each run.
   final above = Zaru.compile(r'[.[] | select(. > $min)]', variables: {'min'});
   print('above 1: ${Zaru.toJson(above.run([1, 2, 3], args: {'min': 1}).single)}');

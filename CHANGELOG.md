@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Add lexical functions and control flow to the core engine: `def` with filter
+  and `$value` parameters (recursion, shadowing, closures over the call site,
+  tail calls that keep constant continuation state), `reduce` and `foreach`
+  (two- and three-clause, multiple initial states), array/object destructuring
+  with `?//` alternatives, and `label`/`break` with a fresh identity per
+  activation. Compile diagnostics follow jq's units (a function body and a
+  call's filter argument are checked only when the enclosing code is clean;
+  unused definitions are dropped; a definitions-only program is
+  `Top-level program not given`). Documented divergence: `try`/`?` never catch a
+  `break` (jq 1.8.2 does). `..` and the jq-defined builtins remain unsupported.
+  The `0 / 781` baseline is unchanged because the harness is not connected.
+
 - Add the core expression engine: `Zaru.compile`, `ZaruFilter.run` / `runJson`,
   and the public `ZaruCompileError`, `ZaruRuntimeError` and
   `ZaruMissingArgumentError`. It evaluates identity, field/index/slice/iterate
@@ -10,8 +22,9 @@
   single-variable `as` bindings, external variables, and `empty`, `error`,
   `not`, `select`, on an explicit-continuation backtracking machine with lazy,
   independent iterators, iterative native ingestion and node-owned immutable
-  projections. Functions, `reduce`/`foreach`, `label`, destructuring, `..`, other
-  builtins, assignment and `@format` fail compilation as unsupported. Adds
+  projections. `..`, other builtins, assignment and `@format` fail compilation
+  as unsupported (functions, `reduce`/`foreach`, `label` and destructuring were
+  unsupported when this entry was written and are now implemented, see above). Adds
   `example/zaru_example.dart` and `mise run example`. The conformance harness is
   not connected, so the `0 / 781` baseline is unchanged.
 - Add the public `ZaruNumber` (exact finite jq number with canonical text) and

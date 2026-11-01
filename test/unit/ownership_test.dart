@@ -58,6 +58,30 @@ void main() {
       ]);
       expect(identical(results[0], results[1]), isFalse);
     });
+
+    test('Suspended accumulator isolation', () {
+      final iterator = Zaru.compile(
+        r'foreach .[] as $x ([]; . + [$x]; .)',
+      ).run([1, 2]).iterator;
+      expect(iterator.moveNext(), isTrue);
+      final first = iterator.current! as List<Object?>;
+      expect(first, [1]);
+      // The engine owns the suspended accumulator: the consumer cannot
+      // change it, so the next iteration still extends [1].
+      expect(() => first.add(99), throwsUnsupportedError);
+      expect(() => first[0] = 99, throwsUnsupportedError);
+      expect(iterator.moveNext(), isTrue);
+      expect(iterator.current, [1, 2]);
+      expect(first, [1]);
+      expect(iterator.moveNext(), isFalse);
+
+      // Reduction results are immutable as well, and runs are separate.
+      final reduced = Zaru.compile(r'reduce .[] as $x ([]; . + [$x])');
+      final a = reduced.run([1]).single! as List<Object?>;
+      expect(() => a.add(2), throwsUnsupportedError);
+      expect(reduced.run([2]).single, [2]);
+      expect(reduced.run([1]).single, [1]);
+    });
   });
 
   group('projection memo', () {

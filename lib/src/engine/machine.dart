@@ -22,7 +22,11 @@ import '../syntax/ast.dart' show BinaryOperator;
 import '../value.dart';
 import 'values.dart';
 
-/// Immutable lexical environment: one cell per variable binding.
+/// Immutable lexical environment: one cell per binding.
+///
+/// A cell holds a variable's value, a [Closure] (a filter parameter), the
+/// identity of a `label` activation, or nothing at all for a function
+/// definition, whose cell only marks where its body's scope begins.
 final class Env {
   const Env(this.value, this.parent);
 
@@ -30,12 +34,23 @@ final class Env {
   final Env? parent;
 }
 
-Object? _lookup(Env? env, int hops) {
+Env _cell(Env? env, int hops) {
   var cell = env!;
   for (var i = 0; i < hops; i++) {
     cell = cell.parent!;
   }
-  return cell.value;
+  return cell;
+}
+
+Object? _lookup(Env? env, int hops) => _cell(env, hops).value;
+
+/// A lexical break: unwinds to the `label` activation it names and is never
+/// seen by `try`, `?` or `//`. It is deliberately not a [JqError].
+final class JqBreak implements Exception {
+  const JqBreak(this.label);
+
+  /// The unique identity of the `label` activation the break targets.
+  final Object label;
 }
 
 const int _eval = 0;
@@ -105,6 +120,10 @@ final class Machine {
   Object? error;
   int wraps = 0;
 
+  /// The label identity of the break being unwound, or null when the unwinding
+  /// signal is a data error.
+  Object? breaking;
+
   int mode = _eval;
   bool finished = false;
   final List<Choice> choices = [];
@@ -153,12 +172,21 @@ final class Machine {
             default:
               if (!_unwind()) {
                 finished = true;
+                if (breaking != null) {
+                  throw StateError('a break escaped its label');
+                }
                 throw ZaruRuntimeError(exportValue(error));
               }
           }
         }
       } on JqError catch (e) {
         error = e.value;
+        breaking = null;
+        wraps = 0;
+        mode = _raise;
+      } on JqBreak catch (e) {
+        error = null;
+        breaking = e.label;
         wraps = 0;
         mode = _raise;
       }
@@ -1138,6 +1166,8 @@ final class _TryMarker extends Choice {
       m.wraps--;
       return false;
     }
+    // A break is control flow, not an error: it is never caught here.
+    if (m.breaking != null) return false;
     final h = handler;
     if (h == null) {
       m.fail();
@@ -1145,5 +1175,617 @@ final class _TryMarker extends Choice {
       m.evalOp(h, m.error, env, k);
     }
     return true;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Functions: definitions, closures and calls.
+
+/// A filter argument: the expression and the environment of its call site.
+final class Closure {
+  const Closure(this.op, this.env);
+
+  final Op op;
+  final Env? env;
+}
+
+/// The body of one `def`, shared by every call. The compiler assigns [body]
+/// exactly once, before any machine runs (a body refers back to its own
+/// definition, so it cannot be built first).
+final class FunctionDef {
+  FunctionDef(this.name);
+
+  final String name;
+  late Op body;
+}
+
+/// `def f: ...; rest`: pushes the definition's cell and continues with the
+/// rest of the expression. The cell is the lexical anchor of the body: a call
+/// evaluates the body in the environment that starts at this cell.
+final class DefineOp extends Op {
+  const DefineOp(this.rest);
+
+  final Op rest;
+
+  @override
+  void exec(Machine m) {
+    m.env = Env(null, m.env);
+    m.op = rest;
+  }
+}
+
+/// A call of a defined function. The arguments become closures over the
+/// call-site environment; the body runs in the definition's environment plus
+/// one cell per argument, with the caller's input and continuation, so a call
+/// in tail position leaves nothing behind.
+final class CallOp extends Op {
+  const CallOp(this.hops, this.function, this.arguments);
+
+  final int hops;
+  final FunctionDef function;
+  final List<Op> arguments;
+
+  @override
+  void exec(Machine m) {
+    final caller = m.env;
+    var env = _cell(caller, hops);
+    for (final argument in arguments) {
+      // A parameter passed on as it is keeps its closure, so recursion that
+      // forwards its arguments does not nest a closure per level.
+      env = Env(
+        argument is ParamCallOp
+            ? _lookup(caller, argument.hops)
+            : Closure(argument, caller),
+        env,
+      );
+    }
+    m.env = env;
+    m.op = function.body;
+  }
+}
+
+/// A use of a filter parameter: its closure runs with the current input.
+final class ParamCallOp extends Op {
+  const ParamCallOp(this.hops);
+
+  final int hops;
+
+  @override
+  void exec(Machine m) {
+    final closure = _lookup(m.env, hops)! as Closure;
+    m.env = closure.env;
+    m.op = closure.op;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// label / break.
+
+/// `label $name | body`: every activation has its own identity.
+final class LabelOp extends Op {
+  const LabelOp(this.body);
+
+  final Op body;
+
+  @override
+  void exec(Machine m) {
+    final identity = Object();
+    m.choices.add(_LabelMarker(identity));
+    m.env = Env(identity, m.env);
+    m.op = body;
+  }
+}
+
+/// Sits on the choice stack below everything the body leaves there, so that a
+/// break to this activation discards the body's remaining alternatives and
+/// backtracks into whatever was pending around the label.
+final class _LabelMarker extends Choice {
+  const _LabelMarker(this.identity);
+
+  final Object identity;
+
+  @override
+  void resume(Machine m) => m.fail();
+
+  @override
+  bool onRaise(Machine m) {
+    if (!identical(m.breaking, identity)) return false;
+    m.breaking = null;
+    m.fail();
+    return true;
+  }
+}
+
+/// `break $name`.
+final class BreakOp extends Op {
+  const BreakOp(this.hops);
+
+  final int hops;
+
+  @override
+  void exec(Machine m) => throw JqBreak(_lookup(m.env, hops)!);
+}
+
+// ---------------------------------------------------------------------------
+// Destructuring.
+
+const Object _unset = _Unset();
+
+final class _Unset {
+  const _Unset();
+}
+
+/// A compiled destructuring pattern. Variables are numbered slots shared by
+/// every alternative of one binder.
+sealed class Matcher {
+  const Matcher();
+}
+
+final class VarMatcher extends Matcher {
+  const VarMatcher(this.slot);
+
+  final int slot;
+}
+
+final class ArrayMatcher extends Matcher {
+  const ArrayMatcher(this.elements);
+
+  final List<Matcher> elements;
+}
+
+/// `key: sub`, `$name` (binds [bindSlot]) or `$name: sub` (both).
+final class ObjectEntryMatcher {
+  const ObjectEntryMatcher(this.key, {this.bindSlot, this.sub});
+
+  final Op key;
+  final int? bindSlot;
+  final Matcher? sub;
+}
+
+final class ObjectMatcher extends Matcher {
+  const ObjectMatcher(this.entries);
+
+  final List<ObjectEntryMatcher> entries;
+}
+
+sealed class _Task {
+  const _Task(this.next);
+
+  final _Task? next;
+}
+
+final class _ValueTask extends _Task {
+  const _ValueTask(this.matcher, this.value, super.next);
+
+  final Matcher matcher;
+  final Object? value;
+}
+
+final class _ElementTask extends _Task {
+  const _ElementTask(this.matcher, this.parent, this.index, super.next);
+
+  final Matcher matcher;
+  final Object? parent;
+  final int index;
+}
+
+final class _EntryTask extends _Task {
+  const _EntryTask(this.entry, this.parent, super.next);
+
+  final ObjectEntryMatcher entry;
+  final Object? parent;
+}
+
+/// Matches a value against one pattern, or against `?//` alternatives, and
+/// hands the variable values to the frame it was started with.
+///
+/// The match is a persistent list of pending tasks, so a key expression that
+/// generates several values backtracks to an unchanged state. Array elements
+/// are matched last to first, as jq compiles them. Without alternatives the
+/// first assignment to a repeated name wins; with them every alternative
+/// writes the same slot, starting from null, and the last write wins. With
+/// alternatives, an error raised anywhere after the match began (in the
+/// pattern, the body, or downstream of the whole expression) retries the
+/// next alternative; the error of the last alternative is the real one.
+final class Binder {
+  const Binder(this.alternatives, this.slotCount);
+
+  final List<Matcher> alternatives;
+  final int slotCount;
+
+  bool get _isAlternation => alternatives.length > 1;
+
+  /// Starts matching [value]; key expressions run in [env]. The slot values
+  /// (a `List<Object?>`) are delivered to [k].
+  void start(Machine m, Object? value, Env? env, Frame? k) =>
+      _begin(m, 0, value, env, k);
+
+  void _begin(Machine m, int index, Object? value, Env? env, Frame? k) {
+    if (index < alternatives.length - 1) {
+      m.choices.add(_RetryChoice(this, index + 1, value, env, k));
+    }
+    final slots = List<Object?>.filled(
+      slotCount,
+      _isAlternation ? null : _unset,
+      growable: false,
+    );
+    _run(m, _ValueTask(alternatives[index], value, null), slots, env, k);
+  }
+
+  List<Object?> _assign(List<Object?> slots, int slot, Object? value) {
+    if (!_isAlternation && !identical(slots[slot], _unset)) return slots;
+    final copy = List<Object?>.of(slots, growable: false);
+    copy[slot] = value;
+    return copy;
+  }
+
+  void _run(
+    Machine m,
+    _Task? first,
+    List<Object?> slotsIn,
+    Env? env,
+    Frame? k,
+  ) {
+    var tasks = first;
+    var slots = slotsIn;
+    while (tasks != null) {
+      final task = tasks;
+      tasks = task.next;
+      final Matcher matcher;
+      final Object? value;
+      switch (task) {
+        case _ValueTask():
+          matcher = task.matcher;
+          value = task.value;
+        case _ElementTask():
+          matcher = task.matcher;
+          value = indexValue(task.parent, task.index);
+        case _EntryTask():
+          final keyOp = task.entry.key;
+          if (keyOp is ConstOp) {
+            final picked = indexValue(task.parent, keyOp.value);
+            (tasks, slots) = _picked(task.entry, picked, tasks, slots);
+            continue;
+          }
+          m.evalOp(
+            keyOp,
+            task.parent,
+            env,
+            _KeyFrame(this, task, tasks, slots, env, k),
+          );
+          return;
+      }
+      switch (matcher) {
+        case VarMatcher(:final slot):
+          slots = _assign(slots, slot, value);
+        case ArrayMatcher(:final elements):
+          for (var i = 0; i < elements.length; i++) {
+            tasks = _ElementTask(elements[i], value, i, tasks);
+          }
+        case ObjectMatcher(:final entries):
+          for (var i = entries.length - 1; i >= 0; i--) {
+            tasks = _EntryTask(entries[i], value, tasks);
+          }
+      }
+    }
+    m.k = k;
+    m.emit(slots);
+  }
+
+  (_Task?, List<Object?>) _picked(
+    ObjectEntryMatcher entry,
+    Object? picked,
+    _Task? tasks,
+    List<Object?> slots,
+  ) {
+    var nextSlots = slots;
+    var nextTasks = tasks;
+    final slot = entry.bindSlot;
+    if (slot != null) nextSlots = _assign(nextSlots, slot, picked);
+    final sub = entry.sub;
+    if (sub != null) nextTasks = _ValueTask(sub, picked, nextTasks);
+    return (nextTasks, nextSlots);
+  }
+}
+
+final class _KeyFrame extends Frame {
+  const _KeyFrame(
+    this.binder,
+    this.task,
+    this.tasks,
+    this.slots,
+    this.env,
+    this.k,
+  ) : super(null);
+
+  final Binder binder;
+  final _EntryTask task;
+  final _Task? tasks;
+  final List<Object?> slots;
+  final Env? env;
+  final Frame? k;
+
+  @override
+  void resume(Machine m, Object? key) {
+    final picked = indexValue(task.parent, key);
+    final (nextTasks, nextSlots) = binder._picked(
+      task.entry,
+      picked,
+      tasks,
+      slots,
+    );
+    binder._run(m, nextTasks, nextSlots, env, k);
+  }
+}
+
+final class _RetryChoice extends Choice {
+  const _RetryChoice(this.binder, this.index, this.value, this.env, this.k);
+
+  final Binder binder;
+  final int index;
+  final Object? value;
+  final Env? env;
+  final Frame? k;
+
+  @override
+  void resume(Machine m) => m.fail();
+
+  @override
+  bool onRaise(Machine m) {
+    // A break is not an error and passes through.
+    if (m.breaking != null) return false;
+    binder._begin(m, index, value, env, k);
+    return true;
+  }
+}
+
+Env? _extend(Env? env, List<Object?> slots) {
+  var extended = env;
+  for (final value in slots) {
+    extended = Env(value, extended);
+  }
+  return extended;
+}
+
+/// `source as pattern | body` for anything but a single plain variable.
+final class DestructureOp extends Op {
+  const DestructureOp(this.source, this.binder, this.body);
+
+  final Op source;
+  final Binder binder;
+  final Op body;
+
+  @override
+  void exec(Machine m) {
+    m.k = _DestructureSourceFrame(this, m.input, m.env, m.k);
+    m.op = source;
+  }
+}
+
+final class _DestructureSourceFrame extends Frame {
+  const _DestructureSourceFrame(this.op, this.input, this.env, super.next);
+
+  final DestructureOp op;
+  final Object? input;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? value) => op.binder.start(
+    m,
+    value,
+    env,
+    _DestructureBodyFrame(op.body, input, env, next),
+  );
+}
+
+final class _DestructureBodyFrame extends Frame {
+  const _DestructureBodyFrame(this.body, this.input, this.env, super.next);
+
+  final Op body;
+  final Object? input;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? slots) =>
+      m.evalOp(body, input, _extend(env, slots! as List<Object?>), next);
+}
+
+// ---------------------------------------------------------------------------
+// reduce and foreach.
+
+/// The one mutable cell of a reduction: the accumulator of a single
+/// activation. It is private to the machine that created it; the values it
+/// holds are immutable engine values.
+final class _Accumulator {
+  _Accumulator(this.value);
+
+  Object? value;
+}
+
+/// `reduce source as pattern (init; update)`: for every output of `init`,
+/// feeds each source output through `update` (the accumulator becomes the
+/// last output of the update, or null when there is none) and yields the final
+/// accumulator once the source is exhausted.
+final class ReduceOp extends Op {
+  const ReduceOp(this.source, this.binder, this.init, this.update);
+
+  final Op source;
+  final Binder binder;
+  final Op init;
+  final Op update;
+
+  @override
+  void exec(Machine m) => m.evalOp(
+    init,
+    m.input,
+    m.env,
+    _ReduceInitFrame(this, m.input, m.env, m.k),
+  );
+}
+
+final class _ReduceInitFrame extends Frame {
+  const _ReduceInitFrame(this.op, this.input, this.env, super.next);
+
+  final ReduceOp op;
+  final Object? input;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? value) {
+    final state = _Accumulator(value);
+    m.choices.add(_ReduceDoneChoice(state, next));
+    m.evalOp(op.source, input, env, _ReduceItemFrame(op, state, env));
+  }
+}
+
+final class _ReduceItemFrame extends Frame {
+  const _ReduceItemFrame(this.op, this.state, this.env) : super(null);
+
+  final ReduceOp op;
+  final _Accumulator state;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? value) =>
+      op.binder.start(m, value, env, _ReduceBodyFrame(op, state, env));
+}
+
+final class _ReduceBodyFrame extends Frame {
+  const _ReduceBodyFrame(this.op, this.state, this.env) : super(null);
+
+  final ReduceOp op;
+  final _Accumulator state;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? slots) {
+    // jq moves the accumulator out: an update without output leaves null.
+    final accumulator = state.value;
+    state.value = null;
+    m.evalOp(
+      op.update,
+      accumulator,
+      _extend(env, slots! as List<Object?>),
+      _ReduceStoreFrame(state),
+    );
+  }
+}
+
+final class _ReduceStoreFrame extends Frame {
+  const _ReduceStoreFrame(this.state) : super(null);
+
+  final _Accumulator state;
+
+  @override
+  void resume(Machine m, Object? value) {
+    state.value = value;
+    m.fail();
+  }
+}
+
+final class _ReduceDoneChoice extends Choice {
+  const _ReduceDoneChoice(this.state, this.k);
+
+  final _Accumulator state;
+  final Frame? k;
+
+  @override
+  void resume(Machine m) {
+    m.k = k;
+    m.emit(state.value);
+  }
+}
+
+/// `foreach source as pattern (init; update; extract)`: for every output of
+/// `init`, feeds each source output through `update`, keeps the last update
+/// output as the next state, and yields every output of `extract` for each
+/// update output. A missing extract is the state itself.
+final class ForeachOp extends Op {
+  const ForeachOp(
+    this.source,
+    this.binder,
+    this.init,
+    this.update,
+    this.extract,
+  );
+
+  final Op source;
+  final Binder binder;
+  final Op init;
+  final Op update;
+  final Op? extract;
+
+  @override
+  void exec(Machine m) => m.evalOp(
+    init,
+    m.input,
+    m.env,
+    _ForeachInitFrame(this, m.input, m.env, m.k),
+  );
+}
+
+final class _ForeachInitFrame extends Frame {
+  const _ForeachInitFrame(this.op, this.input, this.env, super.next);
+
+  final ForeachOp op;
+  final Object? input;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? value) {
+    final state = _Accumulator(value);
+    m.evalOp(op.source, input, env, _ForeachItemFrame(op, state, env, next));
+  }
+}
+
+final class _ForeachItemFrame extends Frame {
+  const _ForeachItemFrame(this.op, this.state, this.env, super.next);
+
+  final ForeachOp op;
+  final _Accumulator state;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? value) =>
+      op.binder.start(m, value, env, _ForeachBodyFrame(op, state, env, next));
+}
+
+final class _ForeachBodyFrame extends Frame {
+  const _ForeachBodyFrame(this.op, this.state, this.env, super.next);
+
+  final ForeachOp op;
+  final _Accumulator state;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? slots) {
+    final accumulator = state.value;
+    state.value = null;
+    final bodyEnv = _extend(env, slots! as List<Object?>);
+    m.evalOp(
+      op.update,
+      accumulator,
+      bodyEnv,
+      _ForeachExtractFrame(op, state, bodyEnv, next),
+    );
+  }
+}
+
+final class _ForeachExtractFrame extends Frame {
+  const _ForeachExtractFrame(this.op, this.state, this.env, super.next);
+
+  final ForeachOp op;
+  final _Accumulator state;
+  final Env? env;
+
+  @override
+  void resume(Machine m, Object? value) {
+    state.value = value;
+    final extract = op.extract;
+    if (extract == null) {
+      m.emit(value);
+    } else {
+      m.evalOp(extract, value, env, next);
+    }
   }
 }

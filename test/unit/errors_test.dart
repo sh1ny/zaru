@@ -111,6 +111,66 @@ void main() {
       ]);
     });
 
+    test(
+      'prior output survives a later failure in reduce-style control flow',
+      () {
+        for (final source in [
+          r'foreach (1, 2, 3) as $x (0; if $x == 3 then error("bad") else . + $x end)',
+          r'def f: (1, 2, error("bad")); f',
+          r'label $a | (1, 2, error("bad"))',
+          r'(1, 2) as [$a] ?// $a | ., error("bad")',
+        ]) {
+          final iterator = Zaru.compile(source).run(null).iterator;
+          var count = 0;
+          while (true) {
+            try {
+              if (!iterator.moveNext()) fail('$source ended without an error');
+              count++;
+            } on ZaruRuntimeError catch (error) {
+              expect(error.value, 'bad', reason: source);
+              break;
+            }
+          }
+          expect(count, greaterThan(0), reason: source);
+          // Terminal: no replay of values, work or the exception.
+          expect(iterator.moveNext(), isFalse, reason: source);
+          expect(iterator.moveNext(), isFalse, reason: source);
+        }
+      },
+    );
+
+    test('catch handles data errors in definitions, not a lexical break', () {
+      expect(
+        jsonOutputs(
+          r'def f(g): try g catch "c"; [f(error("x")), f(1)]',
+          'null',
+        ),
+        ['["c",1]'],
+      );
+      expect(
+        jsonOutputs(r'[label $a | try (error("x"), break $a) catch .]', 'null'),
+        ['["x"]'],
+      );
+      expect(jsonOutputs(r'[label $a | (1, break $a)?, 2]', 'null'), ['[1]']);
+      expect(jsonOutputs(r'try (1 as [$a] | $a) catch .', 'null'), [
+        '"Cannot index number with number (0)"',
+      ]);
+    });
+
+    test('error(null) is catchable in a definition and ends a reduction', () {
+      expect(jsonOutputs(r'def f: error(null); try f catch .', 'null'), [
+        'null',
+      ]);
+      final iterator = Zaru.compile(
+        r'reduce (1, 2) as $x (0; error(null))',
+      ).run(null).iterator;
+      expect(
+        () => iterator.moveNext(),
+        throwsA(isA<ZaruRuntimeError>().having((e) => e.value, 'v', isNull)),
+      );
+      expect(iterator.moveNext(), isFalse);
+    });
+
     test('errors inside a collected array end the array', () {
       expect(
         () => Zaru.compile('[1, error("x")]').run(null).toList(),

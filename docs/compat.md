@@ -43,7 +43,9 @@ Implemented (core engine, covered by `test/unit` and checked against captured
 jq 1.8.2 output, not by conformance cases): identity, field/index/slice/iterate
 and their `?` forms, literals, array and object construction, `|`, `,`,
 arithmetic, comparison, `and`/`or`/`not`, `//`, `if`/`elif`/`else`,
-`try`/`catch`, string interpolation, single-variable `as` bindings, external
+`try`/`catch`, string interpolation, `as` bindings with array/object
+destructuring and `?//` alternatives, `reduce`, `foreach`, `def` with filter and
+`$value` parameters (recursion, shadowing, closures), `label`/`break`, external
 variables, and the builtins `empty`, `error`, `error(f)`, `not` and `select(f)`.
 Their error messages, generator order and the depth/size limits (equality,
 ordering and merge at depth 10000; string repetition below 2147483647 UTF-8
@@ -52,10 +54,10 @@ side of `//` are not suppressed (as in the pinned jq), and a slice or index
 with a fractional or out-of-range bound follows jq's clamping and truncation.
 
 Not implemented, and therefore compile-time *unsupported* errors rather than
-results: function definitions and calls, `reduce`, `foreach`, `label`/`break`
-semantics, destructuring and `?//`, `..`, every builtin other than the five
-above (jq's own `builtins` list is embedded only to tell these apart from
-undefined names), assignment and update operators, `@format`, `$__loc__`,
+results: `..`, every builtin other than the five above (including the
+jq-defined helpers `range`, `map`, `recurse`, `limit`, `first`, ..., which are
+still to be ported; jq's own `builtins` list is embedded only to tell these
+apart from undefined names), assignment and update operators, `@format`, `$__loc__`,
 `$ENV`, path expressions, modules, input/output builtins, and the CLI. None of
 these gaps is an intentional change to jq semantics. An unsupported source can
 never satisfy a compile-error fixture: its diagnostics start with
@@ -101,8 +103,9 @@ it changes no conformance result and the `0 / 781` baseline stands. What it does
   an input outside that sample may still differ.
 - Not produced at parse level: errors that jq finds only after a clean parse
   (undefined `$name`, `f/N is not defined`, unknown label, a missing main
-  program, module lookup). `Zaru.compile` reports the first three after the
-  parser, as semantic errors; the rest are not diagnosed. Invalid numeric
+  program, module lookup). `Zaru.compile` reports the first four after the
+  parser, as semantic errors (a program of only definitions is
+  `Top-level program not given (try ".")`); module lookup is not diagnosed. Invalid numeric
   literals are not diagnosed. The
   folder caps a folded string repetition at 1 MiB and treats larger ones as
   non-constant.
@@ -111,6 +114,19 @@ A compile-error fixture does not pass merely because M0 rejects all execution:
 it must eventually produce the expected compiler behavior. Unsupported behavior
 stays in the denominator. Skips require a specific documented reason in
 `test/conformance/skip.txt`; missing implementation is not a reason to skip.
+
+## Intentional divergences
+
+- **`break` is not catchable.** Pinned jq 1.8.2 implements `break $x` as an
+  error carrying the label, so `try` and `?` around it can catch it:
+  `[label $x | try (1, break $x, 2) catch "caught"]` prints `[1,"caught"]`
+  there, and `[label $x | try break $x catch .]` yields the internal label
+  object `{"__jq":0}`. zaru follows the change's design decision (D3) and the
+  filter-execution requirement that a lexical break is control flow, not a data
+  error: the same filters yield `[1]` and `[]`. Programs that break to a label
+  from outside every `try`/`?` around the label's body, which includes every
+  jq-defined builtin and both fixture corpora, behave identically. This was
+  observed against the pinned reference and is not hidden by a skip.
 
 ## Deliberate scope boundaries
 
@@ -121,8 +137,8 @@ handling of numeric precision boundaries rather than silent browser/VM rounding.
 See [the API direction](api.md) and [ADR 0002](adr/0002-evaluation-model.md).
 
 The CLI supports `--version` only. There is no benchmark or MCP product server,
-and the evaluator covers only the subset above. These are scope statements, not claims of jq compatibility. No
-intentional jq-language semantic divergence has been established in M0; any future
-one must be documented explicitly and kept distinguishable from implementation
-gaps. The selected corpus measures that pinned baseline, not every possible jq
+and the evaluator covers only the subset above. These are scope statements, not claims of jq compatibility. The
+only intentional jq-language semantic divergence is the one listed above; any
+future one must be documented explicitly and kept distinguishable from
+implementation gaps. The selected corpus measures that pinned baseline, not every possible jq
 program or all releases of jq.

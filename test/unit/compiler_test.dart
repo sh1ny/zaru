@@ -226,15 +226,15 @@ jq: error: foo/2 is not defined at <top-level>, line 1, column 5:
         '.a = 1',
         '.a |= 1',
         'include "x"; .',
-        'def f: 1; f',
-        'reduce .[] as \$x (0; . + \$x)',
-        'foreach .[] as \$x (0; . + \$x)',
-        'label \$out | 1',
+        'def f: length; f',
+        'reduce .[] as \$x (0; length)',
+        'foreach .[] as \$x (0; . + \$x; ..)',
+        'label \$out | ..',
         '..',
         'map(.)',
         'length',
         'range(3)',
-        r'. as [$a] | $a',
+        r'. as [$a] | length',
       ]) {
         final error = compileError(source);
         expect(error.isUnsupported, isTrue, reason: source);

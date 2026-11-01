@@ -26,21 +26,6 @@ enum UnsupportedKind {
   /// A module-qualified name such as `ns::name` or `$ns::name`.
   qualifiedName('module-qualified name'),
 
-  /// `def name: body;` and calls of user-defined functions.
-  functionDefinition('function definition'),
-
-  /// `reduce source as $x (init; update)`.
-  reduce('reduce'),
-
-  /// `foreach source as $x (init; update; extract)`.
-  foreach('foreach'),
-
-  /// `label $name | body` and `break $name`.
-  label('label or break'),
-
-  /// A destructuring pattern or a `?//` alternation.
-  destructuring('destructuring pattern'),
-
   /// `..`
   recursiveDescent('recursive descent'),
 
