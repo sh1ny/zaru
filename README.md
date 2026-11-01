@@ -1,6 +1,7 @@
 jq for Dart.
-0 / 781 jq tests passing (the conformance harness is not connected to the
-engine yet, so the baseline is unchanged; see [compatibility](docs/compat.md)).
+358 / 781 jq tests passing (measured by `mise run conformance`, which executes
+the engine on every case; 412 unsupported, 11 failed, 0 skipped; all 352 M1
+acceptance cases pass; see [compatibility](docs/compat.md)).
 
 zaru is bootstrapping a pure-Dart jq-compatible library and command-line tool.
 The core is designed for the Dart VM and browsers, with no `dart:io` imports and
@@ -28,12 +29,14 @@ pretending to work.
   `isUnsupported` set, never a result. See `example/zaru_example.dart`
   (`mise run example`).
 - A pinned jq 1.8.2 corpus with 781 cases, its provenance and license, and a
-  conformance harness that exposes the unimplemented baseline honestly.
+  conformance harness that executes the engine on every case and exposes
+unsupported behavior honestly.
 - Normal infrastructure tests, VM/browser and native-compile CI tasks, and
   architecture decisions for the future implementation.
 
 There is no benchmark implementation or MCP product server. The conformance run
-still scores every case as unimplemented because it does not call the engine.
+executes the real engine on every case; unsupported constructs fail and are
+counted, never skipped.
 The Dart SDK MCP configuration is contributor tooling only.
 
 ## Development
@@ -53,18 +56,20 @@ mise run compile
 mise run example
 ```
 
-`mise run test` covers infrastructure and excludes the tagged semantic
-conformance run. `mise run web-test` needs Chrome. `mise run compile` smoke-checks
+`mise run test` covers infrastructure and excludes the corpus runs,
+which are the separate conformance commands below. `mise run web-test` needs Chrome. `mise run compile` smoke-checks
 the version-only CLI on the host platform; it does not add query support.
 
 ```sh
 mise run conformance
 ```
 
-The conformance command is **intentionally red at M0**: all 781 upstream cases
-remain unimplemented. CI runs it as a real failing gate, without converting
-missing functionality into successful tests or hiding it with `continue-on-error`.
-A green normal test suite is not a jq-compatibility claim.
+`mise run conformance` executes all 781 upstream cases with the engine and is red
+while any case fails; the CI job `full-conformance` runs it unmasked.
+`mise run conformance-gate` is the M1 acceptance check (M1-classified cases plus
+the committed passed-ID floor). Neither runs jq. Missing functionality is never
+converted into a successful test. A green normal test suite is not a
+jq-compatibility claim.
 
 ## Design and contribution
 

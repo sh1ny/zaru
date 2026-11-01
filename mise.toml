@@ -2,7 +2,7 @@
 dart = "latest"
 
 [tasks.test]
-description = "Run unit, CLI, and conformance infrastructure tests"
+description = "Run unit, CLI, and conformance infrastructure tests (excludes tagged reference tests)"
 run = "dart test --exclude-tags conformance,reference"
 
 [tasks.analyze]
@@ -13,7 +13,13 @@ description = "Format Dart sources; pass --check for CI"
 run = "dart run test/support/format.dart"
 
 [tasks.conformance]
-run = "dart test test/conformance/runner_test.dart --tags conformance --reporter expanded"
+description = "Execute the full pinned jq corpus with zaru; fails while any case fails"
+run = "dart run tool/conformance.dart"
+
+[tasks.conformance-gate]
+description = "M1 acceptance gate: frozen M1 cases and the passed-ID floor, no jq needed"
+run = "dart run tool/conformance.dart --gate"
+
 [tasks.reference-setup]
 description = "Build and verify the pinned native jq reference tools explicitly"
 run = "dart run tool/reference_setup.dart"

@@ -4,10 +4,11 @@
 
 zaru is a pure-Dart jq compatibility project. M0 provided tooling, a version-only
 CLI, and an honest failing conformance baseline. M1 (`implement-core-language`,
-in progress) adds a real compiler and lazy evaluator for the jq core subset.
+in progress) adds a real compiler and lazy evaluator for the jq core subset;
+the conformance runner executes it and the README numerator is the measured
+`358 / 781` of the latest full run (all 352 M1 acceptance cases pass).
 Claim only behavior that unit tests exercise or that the conformance runner
-measures; until the runner executes the engine, the README numerator stays at
-its measured value. Never implement a fake evaluator, turn missing features
+measures, and change the numerator only from a fresh `mise run conformance`. Never implement a fake evaluator, turn missing features
 into successful tests, or add benchmark scaffolding or an MCP product server.
 
 Keep runtime dependencies at zero. Only `test` and `lints` are development
@@ -24,7 +25,9 @@ literal fidelity and never silently round large integers for browser support.
 - `example/zaru_example.dart`: runnable usage tour (`mise run example`).
 - `bin/zaru.dart`: CLI entrypoint; `--version` only at M0.
 - `test/unit/`: browser-safe core and infrastructure tests.
-- `test/conformance/`: corpus parser, runner, and explicit skip policy.
+- `test/conformance/`: corpus parser, VM file wrappers (`conformance_io.dart`), the committed passed-ID floor (`floor.json`), reference integrity and gate-process tests, and explicit skip policy.
+- `test/support/conformance_{baseline,run,accounting}.dart`: browser-safe baseline verification, per-case execution/comparison and report/gate decisions (no `dart:io`, no jq).
+- `tool/conformance.dart`: the `conformance` and `conformance-gate` commands.
 - `test/conformance/{jq.test,man.test,VERSION,COPYING,PROVENANCE.json}`: pinned corpus and attribution.
 - `build/conformance-report.json`: generated conformance report, not source.
 - `docs/api.md`: public API; it marks which declarations are implemented and which remain planned.
@@ -48,7 +51,8 @@ another task runner or advertise bare SDK commands in docs or CI.
 | `mise run format` | Format Dart sources. |
 | `mise run format --check` | Check formatting without changing sources. |
 | `mise run test` | Run normal tests, excluding tagged conformance and native-reference tests. |
-| `mise run conformance` | Run all pinned jq cases; intentionally fails at M0. |
+| `mise run conformance` | Verify the frozen baseline, execute all 781 pinned cases with zaru and write `build/conformance-report.json`; fails while any case fails. Never runs jq. |
+| `mise run conformance-gate` | M1 acceptance: verify the frozen baseline, execute freshly, and pass only if every M1-classified case and every ID in `test/conformance/floor.json` passes. Never runs jq or reads an old report. |
 | `mise run reference-classification` | Regenerate source-only grammar/builtin classifications; does not run jq. |
 | `mise run reference-setup` | Verify the pinned jq 1.8.2 source and build jq, libjq, and the capture driver (WSL on Windows). |
 | `mise run reference-census` | Explicitly regenerate the native jq reference census; never run by tests or CI. |
@@ -76,13 +80,16 @@ verification evidence, not a toolchain pin.
 The implement-core-language milestone defines exact check-run contexts:
 `checks`, `core-dart2js`, `core-dart2wasm`, `conformance-gate`, and
 `full-conformance`. The browser contexts use the mise tasks above; the gate
-runs core acceptance without jq; full-conformance covers both corpora and may
-remain red while support is incomplete. Acceptance requires every context
-except `full-conformance`. These names and roles are milestone requirements,
-not a claim of GitHub enforcement. Preserve the existing CLI contexts
-(`Compile CLI (ubuntu-latest)`, `Compile CLI (macos-latest)`, and
-`Compile CLI (windows-latest)`). The existing `checks` job retains M0
-conformance until the planned group-7 split.
+(`mise run conformance-gate`) runs core acceptance without jq;
+`full-conformance` (`mise run conformance`) covers both corpora, is not masked
+by `continue-on-error`, and stays red while any case fails. Acceptance requires
+every context except `full-conformance`. These names and roles are milestone
+requirements, not a claim of GitHub enforcement. Preserve the existing CLI
+contexts (`Compile CLI (ubuntu-latest)`, `Compile CLI (macos-latest)`, and
+`Compile CLI (windows-latest)`). The `checks` job (analyze, format check, normal
+tests) no longer runs conformance: the group-7 split moved it into the
+`conformance-gate` and `full-conformance` jobs. The actual GitHub check-run
+names are verified after a push, not from the workflow text.
 
 Live policy was checked read-only before adding these contexts: the main
 branch-protection endpoint returned 404 and the active branch-rules list was
@@ -121,7 +128,7 @@ Retain the pinned upstream fixtures byte-for-byte, with their copyright notices
 and provenance. Count every case, including expected compile errors. Do not
 skip unsupported syntax or behavior to inflate the pass rate. Document any
 intentional divergence separately from an implementation gap, with a specific
-reason for every skip. Keep README's `0 / 781` baseline and generated reports
+reason for every skip. Keep README's measured numerator (`358 / 781` after M1) and generated reports
 honest as implementation progresses.
 
 Future parser/evaluator changes must follow the ADRs, update affected callers,

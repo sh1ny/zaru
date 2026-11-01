@@ -165,6 +165,21 @@ void main() {
       expect(jsonOutputs('.[-10:2]', '"😀abc"'), ['"😀a"']);
     });
 
+    test('Slice end below zero collapses to the rounded-down start', () {
+      // Probed on pinned jq 1.8.2 (parse_slice in src/jv_aux.c).
+      expect(
+        jsonOutputs(
+          '[.[1.7:-4294967296], .[1.2:-20], .[2.5:-9], .[1.5:1.2], '
+              '.[-0.5:1e1000], .[3:-1e1000]]',
+          '[0,1,2,3,4,5,6,7,8,9]',
+        ),
+        ['[[],[],[],[1],[9],[]]'],
+      );
+      expect(jsonOutputs('[.[1.7:-100], .[1.5:-4.5]]', '"abcdef"'), [
+        '["","b"]',
+      ]);
+    });
+
     test('Native and JSON-text surrogate boundaries', () {
       // A native lone high surrogate normalizes to U+FFFD ...
       expect(Zaru.compile('.').run('a\uD800b').single, 'a�b');

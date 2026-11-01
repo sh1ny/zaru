@@ -475,20 +475,22 @@ int _codePointCount(String s) {
   if ((from != null && !isNumber(from)) || (to != null && !isNumber(to))) {
     throw const JqError('Array/string slice indices must be integers');
   }
+  // Mirrors parse_slice in pinned jq 1.8.2 src/jv_aux.c: the start rounds
+  // down, a still-negative end collapses to the integer start, and the end
+  // rounds up only below the length.
   var dstart = from == null ? 0.0 : numberValue(from);
   var dend = to == null ? length.toDouble() : numberValue(to);
   if (dstart.isNaN) dstart = 0;
-  if (dend.isNaN) dend = length.toDouble();
   if (dstart < 0) dstart += length;
-  if (dend < 0) dend += length;
   if (dstart < 0) dstart = 0;
   if (dstart > length) dstart = length.toDouble();
-  if (dend > length) dend = length.toDouble();
-  if (dend < dstart) dend = dstart;
   final start = dstart.toInt();
-  var end = dend.toInt();
-  if (end < dend) end++;
-  if (end > length) end = length;
+  if (dend.isNaN) dend = length.toDouble();
+  if (dend < 0) dend += length;
+  if (dend < 0) dend = start.toDouble();
+  var end = dend > length ? length : dend.toInt();
+  if (end < length && end < dend) end++;
+  if (end < start) end = start;
   return (start: start, end: end);
 }
 

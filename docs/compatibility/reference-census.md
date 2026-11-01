@@ -93,7 +93,10 @@ compile-error fixtures and only they end in `compileError` with diagnostics and
 no output; runtime errors and only they carry an error wire; evaluation fixtures
 yield exactly the fixture's output count with jq's own comparison passing. The
 ordinary test suite runs this check and its tamper/missing-ID/changed-fact
-regressions (`test/conformance/reference_integrity_test.dart`). After a
+regressions (`test/conformance/reference_integrity_test.dart`).
+The `conformance` and `conformance-gate` commands run the same verification
+(`verifyBaseline`, shared with this tool) before evaluating anything, so a
+changed payload is rejected by every consumer. After a
 reviewed regeneration, `mise run reference-freeze` records the new digests and
 then runs the same verification. Classification remains source-only.
 

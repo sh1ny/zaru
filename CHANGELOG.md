@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- Record the observed M1 conformance result: **358 / 781** jq tests passing
+  (11 failed, 412 unsupported, 0 not run, 0 skipped) and **352 / 352** M1
+  acceptance cases. The 423 non-passing cases are all
+  `explicit-deferred-dependency`: 412 are unsupported constructs (builtins
+  beyond M1, update operators, `@format`, `$__loc__`, `import`, `$ENV`) and 11
+  are module/`_strindices` programs rejected with an undefined-name compile
+  error. `test/conformance/floor.json` now lists the 358 passing IDs, so
+  `mise run conformance-gate` rejects any lost pass. README, AGENTS.md and
+  docs/compat.md carry the new numerator and the remaining gaps.
+
+- Connect the conformance harness to the engine. `mise run conformance` verifies
+  the frozen reference baseline (digests, provenance, the 781 IDs), compiles and
+  runs every case with the real engine through `runJson`, compares with the
+  fixture oracle and the census's typed termination, and writes
+  `build/conformance-report.json`; it fails while any case fails. The new
+  `mise run conformance-gate` passes only when every M1-classified case and
+  every ID in the committed floor (`test/conformance/floor.json`, currently
+  empty) passes, and never accepts a stale report or needs jq. CI splits the
+  corpus out of `checks` into the `conformance-gate` and `full-conformance` jobs.
+  Browser-safe decision logic lives in `test/support/conformance_*.dart` with
+  unit tests; `reference_verify` now shares the baseline verification. The
+  README's published `0 / 781` is not changed by this entry.
+
 - Add the M1 helper set and recursive descent: `..`, `recurse/0,1,2`,
   `range/1,2,3`, `while`, `until`, `limit`, `skip`, `first/0,1`, `last/0,1`,
   `nth/1,2`, `repeat`, `tostring` and `error/1`/`select` as the jq definitions.
