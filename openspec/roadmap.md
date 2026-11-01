@@ -19,9 +19,9 @@ in-process.
   modules, `$ENV`/`env` or CLI-only behavior. Each remaining case is listed in
   `docs/compat.md` with that reason, and none is skipped. (agent)
 - The upstream suites M2's builtins need (`onig.test`, `manonig.test`,
-  `base64.test`, `uri.test`) are vendored byte-for-byte with provenance and a
-  frozen census. Each of their cases passes or is listed with a specific
-  reason. (agent)
+  `base64.test`, `uri.test`, `optional.test`) are vendored byte-for-byte
+  with provenance and a frozen census. Each of their cases passes or is
+  listed with a specific reason. (agent)
 - `mise run conformance-gate` passes with an M2 acceptance classification, and
   `test/conformance/floor.json` holds every measured pass. (agent)
 - `docs/compat.md` no longer lists the `break` divergence, and the regex-engine
@@ -36,18 +36,23 @@ in-process.
 1. `catchable-break` - Let `try` and `?` catch `break` exactly as jq 1.8.2
    does, without catching `halt`. This modifies the filter-execution
    requirement and removes the divergence from `docs/compat.md`.
-2. `path-expressions` - Add the path-tracking evaluation mode (ADR 0002):
-   `path(f)`, `paths`, `getpath`/`setpath`/`delpaths`, `del`, `to_entries`
-   and friends, and path errors.
-3. `assignment-operators` - Add `=`, `|=`, the arithmetic update operators and
+2. `core-builtins` - Add the non-path, non-regex, non-date builtins:
+   - length, keys/keys_unsorted, has and type tests;
+   - map, add, any/all, flatten, to_entries/from_entries/with_entries,
+     sort/group/unique/min/max;
+   - string, number and math builtins;
+   - tojson/fromjson and limit-style helpers;
+   - the capability predicates (reconciled per the strategy).
+
+   It also extends the frozen classification and `conformance-gate` with an
+   M2 acceptance class, which later M2 changes grow.
+3. `path-expressions` - Add the path-tracking evaluation mode (ADR 0002):
+   `path(f)`, `paths`, `getpath`/`setpath`/`delpaths`, `del`, `pick`,
+   `tostream`/`fromstream`, and path errors. Needs `core-builtins`,
+   because jq's `paths` and `del` use `length` and friends.
+4. `assignment-operators` - Add `=`, `|=`, the arithmetic update operators and
    `//=` with jq's update semantics over the path mode. Needs
    `path-expressions`.
-4. `core-builtins` - Add the remaining non-regex, non-date builtins:
-   - length, keys, has and type tests;
-   - map, add, any/all, flatten, sort/group/unique/min/max;
-   - string, number and math builtins;
-   - tojson/fromjson, tostream/fromstream, limit-style helpers;
-   - the capability predicates (reconciled per the strategy).
 5. `regex-builtins` - Record the regex-engine ADR (Oniguruma-compatible
    semantics on every target, zero dependencies). Implement test, match,
    capture, scan, splits, sub and gsub. Vendor `onig.test` and
@@ -55,7 +60,8 @@ in-process.
 6. `formats-time-and-host-builtins` - Add the `@format` strings, the date and
    time builtins, `$__loc__`, and input/inputs, debug, stderr,
    input_filename, input_line_number and halt/halt_error through the ADR 0004
-   capabilities. Vendor `base64.test` and `uri.test`.
+   capabilities. Vendor `base64.test`, `uri.test` and `optional.test`, which
+   tests the date builtins.
 
 ## Next: M3 - jq-compatible CLI
 
@@ -72,9 +78,9 @@ Its oracle is recorded jq output, including `tests/shtest`.
 ## Later
 
 - M4 - Modules and 1.0: `import`/`include` through the caller-supplied resolver
-  (ADR 0005), the documented 1.0 divergence-gate mechanism, the remaining
-  upstream suites (`optional.test`), a semver-stable API review, and the
-  zaru 1.0.0 release on pub.dev.
+  (ADR 0005), vendoring upstream `tests/modules`, the documented 1.0
+  divergence-gate mechanism, a semver-stable API review, and the zaru 1.0.0
+  release on pub.dev.
 
 ## Done
 

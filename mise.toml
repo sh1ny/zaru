@@ -47,8 +47,8 @@ description = "Run source-only jq grammar and builtin classification regression 
 run = "dart test test/conformance/reference_classification_test.dart --tags reference --reporter expanded"
 
 [tasks.bench]
-description = "Reserved until M3 is complete; no benchmarks are implemented"
-run = "echo Benchmarks are deferred until M3 is complete. && exit 2"
+description = "Placeholder: no benchmarks until a measured performance problem (see openspec/strategy.md)"
+run = "echo No benchmarks are implemented; see openspec/strategy.md. && exit 2"
 
 [tasks.example]
 description = "Run the core-engine example"

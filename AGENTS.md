@@ -32,7 +32,8 @@ literal fidelity and never silently round large integers for browser support.
 - `build/conformance-report.json`: generated conformance report, not source.
 - `docs/api.md`: public API; it marks which declarations are implemented and which remain planned.
 - `docs/compat.md`: compatibility baseline and intentional-divergence policy.
-- `docs/adr/`: parser and evaluator architecture decisions.
+- `docs/adr/`: architecture decisions; `openspec/architecture.md` indexes the in-force ADRs.
+- `openspec/strategy.md`, `openspec/roadmap.md`: project strategy and the milestone roadmap.
 - `mise.toml`: toolchain and task definitions; the command interface for work.
 - `.github/workflows/ci.yml`: checks, cross-platform compile, and Chrome jobs.
 - `.agents/skills/`: installed official Dart skills and workflow guidance.
