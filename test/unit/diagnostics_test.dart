@@ -3,8 +3,10 @@ import 'package:zaru/src/syntax/diagnostic.dart';
 import 'package:zaru/src/syntax/parse_result.dart';
 import 'package:zaru/src/syntax/parser.dart';
 import 'package:zaru/src/syntax/span.dart';
+import 'package:zaru/zaru.dart';
 
 import 'diagnostic_snapshots.dart';
+import 'run_support.dart';
 import 'syntax_support.dart';
 
 /// jq_test.c's comparison for `%%FAIL` fixtures: every expected line must be
@@ -480,6 +482,108 @@ jq: error: May need parentheses around object key expression at <top-level>, lin
         expect(result.program, isNotNull);
       });
     }
+  });
+
+  group('through Zaru.compile', () {
+    ZaruCompileError fails(String source) {
+      try {
+        Zaru.compile(source);
+      } on ZaruCompileError catch (error) {
+        return error;
+      }
+      fail('expected compilation of $source to fail');
+    }
+
+    test('Successful source has no diagnostics', () {
+      final filter = Zaru.compile('.');
+      expect(filter.runJson('1').toList(), [1]);
+    });
+
+    test('Lexical diagnostic preserves span and excerpt', () {
+      final error = fails(r'"u\vw"');
+      expect(error.isUnsupported, isFalse);
+      expect(
+        error.message,
+        r'''Invalid escape at line 1, column 4 (while parsing '"\v"')''',
+      );
+      expect(
+        (error.line, error.col, error.endLine, error.endCol),
+        (1, 3, 1, 5),
+      );
+      expect(error.diagnostics, [
+        r'''jq: error: Invalid escape at line 1, column 4 (while parsing '"\v"') at <top-level>, line 1, column 3:'''
+            '\n'
+            r'    "u\vw"'
+            '\n'
+            '      ^^',
+      ]);
+      expect(() => error.diagnostics.add('x'), throwsUnsupportedError);
+    });
+
+    test('Grammar-derived syntax diagnostics', () {
+      expect(fails('. as [] | null').diagnostics, [
+        '''
+jq: error: syntax error, unexpected ']', expecting BINDING or '[' or '{' at <top-level>, line 1, column 7:
+    . as [] | null
+          ^''',
+      ]);
+      final eof = fails('{');
+      expect((eof.line, eof.col, eof.endLine, eof.endCol), (1, 1, 1, 2));
+      expect(eof.diagnostics.single, '''
+jq: error: syntax error, unexpected end of file at <top-level>, line 1, column 1:
+    {
+    ^''');
+      expect(
+        fails('}').message,
+        'syntax error, unexpected INVALID_CHARACTER, expecting end of file',
+      );
+    });
+
+    test('Diagnostics are not keyed to fixtures', () {
+      expect(fails('.a |\n  . as [] | null').diagnostics.single, '''
+jq: error: syntax error, unexpected ']', expecting BINDING or '[' or '{' at <top-level>, line 2, column 9:
+      . as [] | null
+            ^''');
+      expect(fails('{(1): 2} | .x').diagnostics.single, '''
+jq: error: Cannot use number (1) as object key at <top-level>, line 1, column 3:
+    {(1): 2} | .x
+      ^''');
+      expect(fails('.y | {(1): 2}').diagnostics.single, '''
+jq: error: Cannot use number (1) as object key at <top-level>, line 1, column 8:
+    .y | {(1): 2}
+           ^''');
+    });
+
+    test('Valid dynamic key', () {
+      expect(jsonOutputs('{(.key): .value}', '{"key":"a","value":2}'), [
+        '{"a":2}',
+      ]);
+    });
+
+    test('Constant invalid key is not catchable', () {
+      final error = fails('try {(0):1} catch .');
+      expect(error.isUnsupported, isFalse);
+      expect(error.message, 'Cannot use number (0) as object key');
+      expect(error.diagnostics.single, '''
+jq: error: Cannot use number (0) as object key at <top-level>, line 1, column 7:
+    try {(0):1} catch .
+          ^''');
+    });
+
+    test('Missing key parentheses', () {
+      final error = fails('{1+2:3}');
+      expect(error.diagnostics, hasLength(2));
+      expect(error.message, 'syntax error, unexpected LITERAL');
+      expect(
+        error.diagnostics.first,
+        startsWith('jq: error: syntax error, unexpected LITERAL'),
+      );
+      expect(error.diagnostics.last, '''
+jq: error: May need parentheses around object key expression at <top-level>, line 1, column 2:
+    {1+2:3}
+     ^^^''');
+      expect((error.line, error.col, error.endCol), (1, 2, 3));
+    });
   });
 }
 

@@ -10,6 +10,8 @@ import 'package:zaru/src/unicode.dart';
 import 'package:zaru/src/value.dart';
 import 'package:zaru/zaru.dart';
 
+import 'run_support.dart';
+
 void main() {
   group('ordering', () {
     test('String and sorted-key order', () {
@@ -111,6 +113,76 @@ void main() {
       final object = value.items[1] as JqObject;
       expect(object.entries.keys.single, '�');
       expect(object.entries['�'], '�');
+    });
+  });
+
+  group('through compiled filters', () {
+    test('Astral code point slice', () {
+      expect(jsonOutputs('.[1:]', '"😀abc"'), ['"abc"']);
+      expect(Zaru.compile('.[1:]').run('😀abc').single, 'abc');
+      expect(jsonOutputs('.[:1]', '"😀abc"'), ['"😀"']);
+      expect(jsonOutputs('.[0:2]', '"😀abc"'), ['"😀a"']);
+      expect(jsonOutputs('.[2:]', '"é€😀x"'), ['"😀x"']);
+    });
+
+    test('String and sorted-key order', () {
+      expect(jsonOutputs('"\\ufffd" < "😀"', 'null'), ['true']);
+      expect(jsonOutputs('"😀" < "\\ufffd"', 'null'), ['false']);
+      expect(jsonOutputs('"\\ufffd" == "�"', 'null'), ['true']);
+      // Arrays of strings and objects compare by the same order.
+      expect(jsonOutputs('["\\ufffd"] < ["😀"]', 'null'), ['true']);
+      expect(jsonOutputs('{"\\ufffd":1} < {"😀":1}', 'null'), ['true']);
+      final object = Zaru.compile(
+        '{"😀": 1, "\\ufffd": 2, "a": 3}',
+      ).run(null).single;
+      expect(Zaru.toJson(object, sortKeys: true), '{"a":3,"�":2,"😀":1}');
+      expect(Zaru.toJson(object), '{"😀":1,"�":2,"a":3}');
+    });
+
+    test('Numeric string indexing is an error', () {
+      final filter = Zaru.compile('.[1]');
+      expect(
+        () => filter.runJson('"😀abc"').toList(),
+        throwsA(
+          isA<ZaruRuntimeError>().having(
+            (e) => e.value,
+            'value',
+            'Cannot index string with number (1)',
+          ),
+        ),
+      );
+      expect(Zaru.compile('.[1]?').runJson('"😀abc"').toList(), isEmpty);
+      expect(jsonOutputs('.[1:2]', '"😀abc"'), ['"a"']);
+    });
+
+    test('Fractional and negative string slice bounds', () {
+      expect(jsonOutputs('.[1.5:2.7]', '"😀abc"'), ['"ab"']);
+      expect(jsonOutputs('.[-1:]', '"😀abc"'), ['"c"']);
+      expect(jsonOutputs('.[:-1]', '"😀abc"'), ['"😀ab"']);
+      expect(jsonOutputs('.[-2:-1]', '"😀abc"'), ['"b"']);
+      expect(jsonOutputs('.[10:]', '"😀abc"'), ['""']);
+      expect(jsonOutputs('.[3:1]', '"😀abc"'), ['""']);
+      expect(jsonOutputs('.[-10:2]', '"😀abc"'), ['"😀a"']);
+    });
+
+    test('Native and JSON-text surrogate boundaries', () {
+      // A native lone high surrogate normalizes to U+FFFD ...
+      expect(Zaru.compile('.').run('a\uD800b').single, 'a�b');
+      expect(Zaru.compile('.').run('\uDC00').single, '�');
+      // ... and a valid pair is untouched.
+      expect(Zaru.compile('.').run('\u{1F600}').single, '\u{1F600}');
+      // A raw lone surrogate in JSON text, and an escaped low surrogate,
+      // normalize; an escaped lone high surrogate is a format error.
+      expect(Zaru.compile('.').runJson('"a\uD800b"').single, 'a�b');
+      expect(Zaru.compile('.').runJson(r'"\udc00"').single, '�');
+      expect(
+        () => Zaru.compile('.').runJson(r'"\ud800"').toList(),
+        throwsFormatException,
+      );
+      // The same normalization applies to keys.
+      final map =
+          Zaru.compile('.').run({'k\uD800': 1}).single! as Map<String, Object?>;
+      expect(map.keys, ['k�']);
     });
   });
 }

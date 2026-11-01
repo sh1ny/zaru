@@ -9,6 +9,9 @@ import 'package:zaru/src/json_decoder.dart';
 import 'package:zaru/src/json_printer.dart';
 import 'package:zaru/src/number.dart';
 import 'package:zaru/src/value.dart';
+import 'package:zaru/zaru.dart';
+
+import 'run_support.dart';
 
 /// dart2js is the only target where int and double overlap.
 final bool overlappingNumbers = identical(1, 1.0);
@@ -554,6 +557,188 @@ void main() {
       expect(() => array.items.add(3), throwsUnsupportedError);
       final object = JqObject({'a': 1});
       expect(() => object.entries['b'] = 2, throwsUnsupportedError);
+    });
+  });
+
+  group('through compiled filters', () {
+    Object? one(String filter, String json) =>
+        Zaru.compile(filter).runJson(json).single;
+
+    test('Large integer source', () {
+      final filter = Zaru.compile('12345678909876543212345');
+      final result = filter.run(null).single;
+      expect(result, isA<ZaruNumber>());
+      expect((result! as ZaruNumber).literal, '12345678909876543212345');
+      expect(Zaru.toJson(result), '12345678909876543212345');
+      expect(jsonOutputs('[12345678909876543212345, 1.000]', 'null'), [
+        '[12345678909876543212345,1.000]',
+      ]);
+    });
+
+    test('Exact input survives nested and argument boundaries', () {
+      final big = ZaruNumber.parse('12345678909876543212345');
+      final filter = Zaru.compile(
+        r'.id, $big, [.id, $big]',
+        variables: {'big'},
+      );
+      final results = filter.run({'id': big}, args: {'big': big}).toList();
+      expect(results[0], big);
+      expect(results[1], big);
+      expect(results[2], [big, big]);
+      expect(results.map(Zaru.toJson).toList(), [
+        '12345678909876543212345',
+        '12345678909876543212345',
+        '[12345678909876543212345,12345678909876543212345]',
+      ]);
+      // The wrapper at the root, as well.
+      expect(Zaru.compile('.').run(big).single, big);
+    });
+
+    test('Negate large literal without rounding', () {
+      expect(jsonOutputs('-.', '13911860366432393'), ['-13911860366432393']);
+      expect(jsonOutputs('-.', '-0.12345678901234567890123456789'), [
+        '0.12345678901234567890123456789',
+      ]);
+      expect(jsonOutputs('-.', '1.00'), ['-1.00']);
+    });
+
+    test('Mixed comparison after arithmetic rounding', () {
+      expect(
+        jsonOutputs(r'. as $n | $n + 0 | [., . == $n]', '13911860366432393'),
+        ['[13911860366432392,true]'],
+      );
+    });
+
+    test('Two-step rounding at a binary midpoint', () {
+      expect(jsonOutputs('9007199254740993.00000000001 + 0', 'null'), [
+        '9007199254740992',
+      ]);
+    });
+
+    test('Decimal context exponent edges', () {
+      expect(jsonOutputs('.', '0e1000000000'), ['0E+999999999']);
+      expect(jsonOutputs('.', '1e-1000000000'), ['1E-1000000000']);
+      final huge = one('.', '1e1000');
+      expect(huge, isA<ZaruNumber>());
+      expect((huge! as ZaruNumber).literal, '1E+1000');
+      expect((huge as ZaruNumber).toDouble(), double.infinity);
+      expect(jsonOutputs('. + 0', '1e1000'), ['1.7976931348623157e+308']);
+      expect(jsonOutputs('. + 0', '1e-1000000000'), ['0']);
+      // The same spellings inside a filter literal.
+      expect(jsonOutputs('1e1000', 'null'), ['1E+1000']);
+    });
+
+    test('Ordinary number remains plain', () {
+      final i = one('.', '42');
+      final d = one('.', '0.5');
+      expect(i, isA<num>());
+      expect(i, 42);
+      expect(d, isA<num>());
+      expect(d, 0.5);
+      if (!overlappingNumbers) {
+        expect(i, isA<int>());
+        expect(d, isA<double>());
+      }
+      expect(one('.', '-7'), -7);
+      expect(one('.', '9007199254740991'), 9007199254740991);
+      expect(one('.', '2.5e-3'), 2.5e-3);
+    });
+
+    test('Precision and scale require a wrapper', () {
+      const expected = {
+        '1.00': '1.00',
+        '1.0': '1.0',
+        '1e2': '1E+2',
+        '100e-2': '1.00',
+        '9007199254740993': '9007199254740993',
+        '9E+999999999': '9E+999999999',
+      };
+      expected.forEach((source, literal) {
+        final result = one('.', source);
+        expect(result, isA<ZaruNumber>(), reason: source);
+        expect((result! as ZaruNumber).literal, literal, reason: source);
+        expect(Zaru.toJson(result), literal, reason: source);
+      });
+    });
+
+    test('Literal negative zero follows jq canonicalization', () {
+      final result = one('.', '-0');
+      expect(result, isA<double>());
+      expect((result! as double).isNegative, isTrue);
+      expect(Zaru.toJson(result), '-0');
+      expect(jsonOutputs('. == 0', '-0'), ['true']);
+      // The compiled expression -0 folds to a positive zero.
+      final folded = Zaru.compile('-0').run(null).single;
+      expect(folded, 0);
+      expect((folded! as num).isNegative, isFalse);
+      expect(Zaru.toJson(folded), '0');
+      expect(jsonOutputs('-.', '-0'), ['0']);
+      expect(jsonOutputs('-.', '0'), ['0']);
+      // Computed negation of zero follows binary64.
+      expect(jsonOutputs('(. + 0) | -.', '0'), ['-0']);
+    });
+
+    test('Integral native doubles have no source scale', () {
+      for (final native in <num>[1, 1.0]) {
+        final result = Zaru.compile('.').run(native).single;
+        expect(result, isA<num>());
+        expect(result, isNot(isA<ZaruNumber>()));
+        expect(result, 1);
+        expect(Zaru.toJson(result), '1');
+      }
+      // Both enter as computed numbers, so literal precision never appears.
+      expect(nativeOutputs('. == 1.0000000000000001', 1), ['true']);
+      expect(nativeOutputs('. == 1.0000000000000001', 1.0), ['true']);
+    });
+
+    test('Unsafe native input cannot recover missing digits', () {
+      // A JavaScript caller has already rounded 9007199254740993.
+      final result = Zaru.compile('.').run(9007199254740992.0).single;
+      expect(result, 9007199254740992.0);
+      expect(result, isNot(isA<ZaruNumber>()));
+      expect(Zaru.toJson(result), '9007199254740992');
+      // The original digits are recoverable through runJson or ZaruNumber.
+      expect(jsonOutputs('.', '9007199254740993'), ['9007199254740993']);
+    });
+
+    test('Ordinary native doubles stay plain', () {
+      const values = [0.00001, 1.5e-7, 1e16, 1e23, 1e300];
+      const spelling = ['1e-05', '1.5e-07', '1e+16', '1e+23', '1e+300'];
+      for (var i = 0; i < values.length; i++) {
+        final result = Zaru.compile('.').run(values[i]).single;
+        expect(result, isA<num>(), reason: '${values[i]}');
+        expect(result, isNot(isA<ZaruNumber>()), reason: '${values[i]}');
+        expect(result, values[i]);
+        expect(Zaru.toJson(result), spelling[i]);
+      }
+    });
+
+    test('Native large-double comparison uses fallback', () {
+      expect(nativeOutputs('. == 1e23', 1e23), ['true']);
+      expect(nativeOutputs('. == 100000000000000000000000', 1e23), ['true']);
+    });
+
+    test('Native nonrepresentable integer retains exactness', () {
+      if (overlappingNumbers) {
+        markTestSkipped('dart2js cannot hold the unrounded integer');
+        return;
+      }
+      final exact = int.parse('9007199254740993');
+      final result = Zaru.compile('.').run(exact).single;
+      expect(result, isA<ZaruNumber>());
+      expect((result! as ZaruNumber).literal, '9007199254740993');
+      // It enters with exact literal origin, so it differs from ...992.
+      expect(nativeOutputs('. == 9007199254740993', exact), ['true']);
+      expect(nativeOutputs('. == 9007199254740992', exact), ['false']);
+    });
+
+    test('Native signed zero survives identity', () {
+      final result = Zaru.compile('.').run(-0.0).single;
+      expect(result, isA<num>());
+      expect((result! as num).isNegative, isTrue);
+      expect(result, 0);
+      expect(Zaru.toJson(result), '-0');
+      expect(nativeOutputs('. == 0', -0.0), ['true']);
     });
   });
 }

@@ -467,6 +467,10 @@ final class JqNumber {
     return JqNumber.computed(value.toDouble());
   }
 
+  /// Gives a public [ZaruNumber] its private literal origin back.
+  factory JqNumber.fromZaru(ZaruNumber number) =>
+      JqNumber._literal(decimalOf(number));
+
   /// The exact decimal, or null for a computed number.
   final Decimal? decimal;
 

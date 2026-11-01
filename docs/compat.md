@@ -1,9 +1,13 @@
 # Compatibility baseline
 
-M0 implements no jq filter behavior. The baseline is **0 / 781 jq tests passing**;
-this is an honest unimplemented baseline, not an assertion that the upstream
-suite has been satisfied. An unavailable evaluator is a failure, never a skip or
-a fabricated successful result.
+The conformance baseline is **0 / 781 jq tests passing**. The core engine
+(`Zaru.compile`, `run`, `runJson`; see [the API](api.md)) now evaluates a small
+subset of jq, but the conformance harness is **not connected to it yet**, so
+every case is still scored as unimplemented and the number is unchanged. It is
+an honest unmeasured baseline, not an assertion that the upstream suite has
+been satisfied, and it does not claim that any particular fixture passes. An
+unavailable evaluator is a failure, never a skip or a fabricated successful
+result.
 
 ## Pinned upstream corpus
 
@@ -25,7 +29,8 @@ The zaru MIT license does not replace upstream notices.
 The harness reads the upstream block format and counts cases independently of
 whether zaru implements them. Infrastructure tests can pass while all semantic
 cases fail. The `conformance` task is deliberately separate from the normal test
-task and is expected to exit unsuccessfully at M0.
+task and is expected to exit unsuccessfully until the harness is connected to the
+engine and the engine is complete.
 
 ```sh
 mise run test
@@ -34,16 +39,33 @@ mise run conformance
 
 ## Implementation gaps, not intentional divergences
 
-Parsing, compilation, evaluation, built-ins, variable binding, streaming output,
-path selection, updates, error semantics, and jq-compatible number handling are
-not implemented. None of these gaps is an intentional change to jq semantics.
-There is no supported filter subset, including the identity filter.
+Implemented (core engine, covered by `test/unit` and checked against captured
+jq 1.8.2 output, not by conformance cases): identity, field/index/slice/iterate
+and their `?` forms, literals, array and object construction, `|`, `,`,
+arithmetic, comparison, `and`/`or`/`not`, `//`, `if`/`elif`/`else`,
+`try`/`catch`, string interpolation, single-variable `as` bindings, external
+variables, and the builtins `empty`, `error`, `error(f)`, `not` and `select(f)`.
+Their error messages, generator order and the depth/size limits (equality,
+ordering and merge at depth 10000; string repetition below 2147483647 UTF-8
+bytes) follow the pinned jq. Known behavior to keep in mind: errors in the left
+side of `//` are not suppressed (as in the pinned jq), and a slice or index
+with a fractional or out-of-range bound follows jq's clamping and truncation.
+
+Not implemented, and therefore compile-time *unsupported* errors rather than
+results: function definitions and calls, `reduce`, `foreach`, `label`/`break`
+semantics, destructuring and `?//`, `..`, every builtin other than the five
+above (jq's own `builtins` list is embedded only to tell these apart from
+undefined names), assignment and update operators, `@format`, `$__loc__`,
+`$ENV`, path expressions, modules, input/output builtins, and the CLI. None of
+these gaps is an intentional change to jq semantics. An unsupported source can
+never satisfy a compile-error fixture: its diagnostics start with
+`zaru: unsupported:`.
 
 The number, JSON-text decoding, and printing layers are an exception to the
 "not implemented" list only as library building blocks: `ZaruNumber`,
 `Zaru.toJson`, and an internal jq-compatible decoder exist and are covered by
 direct unit tests, not by conformance cases. They do not make any jq filter
-work and do not change the `0 / 781` baseline. Known limitation: a numeric
+work by themselves and do not change the `0 / 781` baseline. Known limitation: a numeric
 literal with more than 147483648 coefficient digits is not rounded to jq's
 decimal context precision. The tests' fixture oracle compares finite numbers as
 exact decimals; that is a test-infrastructure judgment, distinct from jq's
@@ -79,7 +101,9 @@ it changes no conformance result and the `0 / 781` baseline stands. What it does
   an input outside that sample may still differ.
 - Not produced at parse level: errors that jq finds only after a clean parse
   (undefined `$name`, `f/N is not defined`, unknown label, a missing main
-  program, module lookup). Invalid numeric literals are not diagnosed. The
+  program, module lookup). `Zaru.compile` reports the first three after the
+  parser, as semantic errors; the rest are not diagnosed. Invalid numeric
+  literals are not diagnosed. The
   folder caps a folded string repetition at 1 MiB and treats larger ones as
   non-constant.
 
@@ -96,8 +120,8 @@ may use I/O. The planned API uses ordinary Dart JSON-shaped values, with explici
 handling of numeric precision boundaries rather than silent browser/VM rounding.
 See [the API direction](api.md) and [ADR 0002](adr/0002-evaluation-model.md).
 
-M0's CLI supports `--version` only. There is no evaluator, benchmark, or MCP
-product server. These are scope statements, not claims of jq compatibility. No
+The CLI supports `--version` only. There is no benchmark or MCP product server,
+and the evaluator covers only the subset above. These are scope statements, not claims of jq compatibility. No
 intentional jq-language semantic divergence has been established in M0; any future
 one must be documented explicitly and kept distinguishable from implementation
 gaps. The selected corpus measures that pinned baseline, not every possible jq

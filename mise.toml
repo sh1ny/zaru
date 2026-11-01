@@ -44,6 +44,10 @@ run = "dart test test/conformance/reference_classification_test.dart --tags refe
 description = "Reserved until M3 is complete; no benchmarks are implemented"
 run = "echo Benchmarks are deferred until M3 is complete. && exit 2"
 
+[tasks.example]
+description = "Run the core-engine example"
+run = "dart run example/zaru_example.dart"
+
 [tasks.cli]
 run = "dart run bin/zaru.dart"
 

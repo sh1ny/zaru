@@ -15,6 +15,10 @@ final class JqArray {
 
   final List<Object?> items;
 
+  /// The lazily created immutable public projection of this node, owned by
+  /// the node (never by a run or a global table). See `exportValue`.
+  Object? projection;
+
   int get length => items.length;
 }
 
@@ -25,6 +29,9 @@ final class JqObject {
     : entries = UnmodifiableMapView(entries);
 
   final Map<String, Object?> entries;
+
+  /// The lazily created immutable public projection of this node.
+  Object? projection;
 
   int get length => entries.length;
 }

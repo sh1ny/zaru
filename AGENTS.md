@@ -1,11 +1,14 @@
 # Contributor and agent instructions
 
-## M0 boundary
+## Project boundary
 
-zaru is a pure-Dart jq compatibility project. M0 provides tooling, a version-only
-CLI, and an honest failing conformance baseline. Do not claim that any jq filter
-works, implement a fake evaluator, turn missing features into successful tests,
-or add benchmark scaffolding or an MCP product server.
+zaru is a pure-Dart jq compatibility project. M0 provided tooling, a version-only
+CLI, and an honest failing conformance baseline. M1 (`implement-core-language`,
+in progress) adds a real compiler and lazy evaluator for the jq core subset.
+Claim only behavior that unit tests exercise or that the conformance runner
+measures; until the runner executes the engine, the README numerator stays at
+its measured value. Never implement a fake evaluator, turn missing features
+into successful tests, or add benchmark scaffolding or an MCP product server.
 
 Keep runtime dependencies at zero. Only `test` and `lints` are development
 package dependencies. `lib/` must remain free of `dart:io`, native bindings,
@@ -16,13 +19,15 @@ literal fidelity and never silently round large integers for browser support.
 
 ## Repository map
 
-- `lib/zaru.dart`: public library entrypoint; no filter APIs are implemented M0.
+- `lib/zaru.dart`: public library entrypoint: `Zaru.compile`, `ZaruFilter`, the error types and `ZaruNumber`.
+- `lib/src/engine/`: immutable operation tree, execution machine, value semantics and compiler of the core subset.
+- `example/zaru_example.dart`: runnable usage tour (`mise run example`).
 - `bin/zaru.dart`: CLI entrypoint; `--version` only at M0.
 - `test/unit/`: browser-safe core and infrastructure tests.
 - `test/conformance/`: corpus parser, runner, and explicit skip policy.
 - `test/conformance/{jq.test,man.test,VERSION,COPYING,PROVENANCE.json}`: pinned corpus and attribution.
 - `build/conformance-report.json`: generated conformance report, not source.
-- `docs/api.md`: planned API; not a claim of existing declarations.
+- `docs/api.md`: public API; it marks which declarations are implemented and which remain planned.
 - `docs/compat.md`: compatibility baseline and intentional-divergence policy.
 - `docs/adr/`: parser and evaluator architecture decisions.
 - `mise.toml`: toolchain and task definitions; the command interface for work.
@@ -54,6 +59,7 @@ another task runner or advertise bare SDK commands in docs or CI.
 | `mise run web-test` | Run browser-safe tests in Chrome. |
 | `mise run web-test-wasm` | Run browser-safe tests in Chrome using dart2wasm. |
 | `mise run compile` | Compile the CLI on the current host. |
+| `mise run example` | Run `example/zaru_example.dart`, the core-engine tour. |
 | `mise run cli -- --version` | Show the M0 package version. |
 
 `mise run web-test` explicitly selects `dart2js`; `mise run web-test-wasm`

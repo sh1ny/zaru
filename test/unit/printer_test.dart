@@ -9,6 +9,8 @@ import 'package:zaru/src/number.dart';
 import 'package:zaru/src/value.dart';
 import 'package:zaru/zaru.dart';
 
+import 'run_support.dart';
+
 /// Builds `[[...[leaf]...]]` with [depth] arrays, iteratively.
 Object? nestedLists(int depth, Object? leaf) {
   Object? value = leaf;
@@ -283,6 +285,47 @@ void main() {
         () => Zaru.toJson(nestedLists(10000, Object())),
         throwsArgumentError,
       );
+    });
+  });
+
+  group('printing computed and literal results', () {
+    test('Integer-preserving printing', () {
+      // A computed result equal to 1.0 prints as the integer.
+      expect(Zaru.toJson(Zaru.compile('1.0 + 0').run(null).single), '1');
+      expect(jsonOutputs('1.0 + 0', 'null'), ['1']);
+      expect(jsonOutputs('. * 1', '3.0'), ['3']);
+      expect(jsonOutputs('.', '3.0'), ['3.0']);
+    });
+
+    test('Large literal pass-through', () {
+      expect(jsonOutputs('.', '12345678909876543212345'), [
+        '12345678909876543212345',
+      ]);
+      expect(jsonOutputs('12345678909876543212345', 'null'), [
+        '12345678909876543212345',
+      ]);
+      expect(jsonOutputs('[.[]]', '[100000000000000000000000000000001]'), [
+        '[100000000000000000000000000000001]',
+      ]);
+    });
+
+    test('Preserve literal form but not computed float spelling', () {
+      expect(jsonOutputs('1.00', 'null'), ['1.00']);
+      expect(Zaru.toJson(Zaru.compile('.').run(1.0).single), '1');
+      expect(jsonOutputs('., . + 0', '1.00'), ['1.00', '1']);
+    });
+
+    test('Lossless input decoding', () {
+      expect(jsonOutputs('.', '{"id":12345678909876543212345}'), [
+        '{"id":12345678909876543212345}',
+      ]);
+      expect(jsonOutputs('.id', '{"id":12345678909876543212345}'), [
+        '12345678909876543212345',
+      ]);
+      final result =
+          Zaru.compile('.').runJson('{"id":12345678909876543212345}').single!
+              as Map<String, Object?>;
+      expect(result['id'], isA<ZaruNumber>());
     });
   });
 }

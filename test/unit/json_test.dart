@@ -9,6 +9,8 @@ import 'package:zaru/src/number.dart';
 import 'package:zaru/src/value.dart';
 import 'package:zaru/zaru.dart';
 
+import 'run_support.dart';
+
 Matcher formatError({String? contains, int? offset, String? source}) {
   var matcher = isA<FormatException>();
   if (contains != null) {
@@ -300,5 +302,138 @@ void main() {
         expect((big as JqArray).length, 1001);
       },
     );
+  });
+
+  group('runJson through compiled filters', () {
+    test('Literal origin survives before public narrowing', () {
+      final filter = Zaru.compile('. == 42.0000000000000001');
+      // JSON text: literal 42 against literal 42.0000000000000001 is decimal.
+      expect(filter.runJson('42').toList(), [false]);
+      // Native 42 is computed, so the comparison falls back to doubles.
+      expect(filter.run(42).toList(), [true]);
+      // An ordinary public 42 results either way; no wrapper is boxed for it.
+      expect(Zaru.compile('.').runJson('42').single, 42);
+    });
+
+    test('JSON text errors are lazy and terminal', () {
+      final filter = Zaru.compile('.');
+      // Creating the iterable and the iterator succeeds for malformed text.
+      final iterable = filter.runJson('{"a":');
+      final iterator = iterable.iterator;
+      expect(
+        () => iterator.moveNext(),
+        throwsA(
+          isA<FormatException>()
+              .having((e) => e.source, 'source', '{"a":')
+              .having((e) => e.offset, 'offset', isNotNull),
+        ),
+      );
+      expect(iterator.moveNext(), isFalse);
+      expect(iterator.moveNext(), isFalse);
+      // A later iteration of the same iterable fails again, independently.
+      expect(() => iterable.toList(), throwsFormatException);
+      // The error precedes any evaluation, including a missing argument.
+      final needs = Zaru.compile(r'$x', variables: {'x'});
+      expect(
+        () => needs.runJson('{').iterator.moveNext(),
+        throwsA(anyOf(isA<FormatException>(), isA<ZaruMissingArgumentError>())),
+      );
+    });
+
+    test('Empty JSON text is not an input stream', () {
+      for (final text in ['', '   ', '\n\t ']) {
+        final iterator = Zaru.compile('.').runJson(text).iterator;
+        expect(
+          () => iterator.moveNext(),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              contains('Expected JSON value'),
+            ),
+          ),
+          reason: 'text ${text.codeUnits}',
+        );
+        expect(iterator.moveNext(), isFalse);
+      }
+    });
+
+    test('BOM and nonfinite inputs', () {
+      final results =
+          Zaru.compile('.').runJson('﻿[NaN,Infinity,-Infinity,-NaN]').single!
+              as List<Object?>;
+      expect((results[0]! as double).isNaN, isTrue);
+      expect(results[1], double.infinity);
+      expect(results[2], double.negativeInfinity);
+      expect((results[3]! as double).isNaN, isTrue);
+      expect(
+        Zaru.toJson(results),
+        '[null,1.7976931348623157e+308,'
+        '-1.7976931348623157e+308,null]',
+      );
+    });
+
+    test('Numeric input grammar is jq grammar', () {
+      expect(
+        [
+          for (final t in ['+1', '01', '.5', '1.']) jsonOutputs('.', t).single,
+        ],
+        ['1', '1', '0.5', '1'],
+      );
+    });
+
+    test('Invalid JSON and escaped surrogate errors remain errors', () {
+      for (final text in ['1 2', '[1,]', '1x', r'"\ud800"', '{"a" 1}']) {
+        final iterator = Zaru.compile('.').runJson(text).iterator;
+        expect(
+          () => iterator.moveNext(),
+          throwsA(isA<FormatException>()),
+          reason: text,
+        );
+        expect(iterator.moveNext(), isFalse, reason: text);
+      }
+      // A lone low surrogate escape normalizes instead.
+      expect(Zaru.compile('.').runJson(r'"\udc00"').single, '�');
+    });
+
+    test('Array parsing depth boundary', () {
+      final ok = '${'[' * 10000}0${']' * 10000}';
+      final result = Zaru.compile('.').runJson(ok).single;
+      expect(Zaru.toJson(result), ok);
+      final bad = '${'[' * 10001}0${']' * 10001}';
+      final iterator = Zaru.compile('.').runJson(bad).iterator;
+      expect(
+        () => iterator.moveNext(),
+        throwsA(
+          isA<FormatException>()
+              .having((e) => e.source, 'source', bad)
+              .having((e) => e.offset, 'offset', 10000)
+              .having(
+                (e) => e.message,
+                'message',
+                contains(
+                  'Exceeds depth limit for parsing at line 1, column 10001',
+                ),
+              ),
+        ),
+      );
+      expect(iterator.moveNext(), isFalse);
+    });
+
+    test('Object keys consume parser stack slots', () {
+      String nested(int depth) => '${'{"a":' * depth}0${'}' * depth}';
+      final ok = Zaru.compile('.').runJson(nested(5000)).single;
+      expect(Zaru.toJson(ok), nested(5000));
+      expect(
+        () => Zaru.compile('.').runJson(nested(5001)).toList(),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('Exceeds depth limit for parsing'),
+          ),
+        ),
+      );
+    });
   });
 }

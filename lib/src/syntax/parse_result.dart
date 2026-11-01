@@ -24,7 +24,31 @@ enum UnsupportedKind {
   assignment('assignment or update operator'),
 
   /// A module-qualified name such as `ns::name` or `$ns::name`.
-  qualifiedName('module-qualified name');
+  qualifiedName('module-qualified name'),
+
+  /// `def name: body;` and calls of user-defined functions.
+  functionDefinition('function definition'),
+
+  /// `reduce source as $x (init; update)`.
+  reduce('reduce'),
+
+  /// `foreach source as $x (init; update; extract)`.
+  foreach('foreach'),
+
+  /// `label $name | body` and `break $name`.
+  label('label or break'),
+
+  /// A destructuring pattern or a `?//` alternation.
+  destructuring('destructuring pattern'),
+
+  /// `..`
+  recursiveDescent('recursive descent'),
+
+  /// A builtin that jq defines and this release does not implement yet.
+  builtin('jq builtin'),
+
+  /// `$ENV`
+  environment(r'$ENV');
 
   const UnsupportedKind(this.description);
 

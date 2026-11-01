@@ -2,19 +2,30 @@
 
 ## Unreleased
 
+- Add the core expression engine: `Zaru.compile`, `ZaruFilter.run` / `runJson`,
+  and the public `ZaruCompileError`, `ZaruRuntimeError` and
+  `ZaruMissingArgumentError`. It evaluates identity, field/index/slice/iterate
+  (with `?`), literals, array/object construction, `|`, `,`, arithmetic,
+  comparison, `and`/`or`, `//`, `if`, `try`/`catch`, string interpolation,
+  single-variable `as` bindings, external variables, and `empty`, `error`,
+  `not`, `select`, on an explicit-continuation backtracking machine with lazy,
+  independent iterators, iterative native ingestion and node-owned immutable
+  projections. Functions, `reduce`/`foreach`, `label`, destructuring, `..`, other
+  builtins, assignment and `@format` fail compilation as unsupported. Adds
+  `example/zaru_example.dart` and `mise run example`. The conformance harness is
+  not connected, so the `0 / 781` baseline is unchanged.
 - Add the public `ZaruNumber` (exact finite jq number with canonical text) and
   `Zaru.toJson` (jq-compatible compact/indented printing, sorted keys, depth
-  truncation marker). No filter, `run`, `runJson`, or `fromJson` API exists.
+  truncation marker).
 - Add private iterative jq-compatible number, JSON decoding, and Unicode
   normalization layers, and a browser-safe exact fixture oracle for tests that
-  is separate from runtime equality. No jq filter is evaluated and the
-  conformance baseline is unchanged.
+  is separate from runtime equality. The conformance baseline is unchanged.
 
 - Add an internal jq lexer, parser and diagnostic renderer (`lib/src/syntax`):
   UTF-8 byte spans, a syntax tree, Bison-style error recovery and jq's
   excerpt/caret rendering, constant object-key and module-metadata checks, and
   explicit `unsupported` records for deferred syntax. Checked against captured
-  jq 1.8.2 output. Nothing is exported or evaluated; the baseline is unchanged.
+  jq 1.8.2 output. The parser itself is internal; the baseline is unchanged.
 
 ## 0.0.0 — M0 bootstrap
 
