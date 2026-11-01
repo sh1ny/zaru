@@ -1,6 +1,6 @@
 jq for Dart.
 358 / 781 jq tests passing (measured by `mise run conformance`, which executes
-the engine on every case; 412 unsupported, 11 failed, 0 skipped; all 352 M1
+the engine on every case; 423 unsupported, 0 failed, 0 skipped; all 352 M1
 acceptance cases pass; see [compatibility](docs/compat.md)).
 
 zaru is bootstrapping a pure-Dart jq-compatible library and command-line tool.
@@ -21,10 +21,14 @@ pretending to work.
   construction, `|` and `,`, arithmetic, comparison, `and`/`or`/`not`, `//`,
   `if`/`elif`/`else`, `try`/`catch`, string interpolation, `expr as pattern |
   ...` with destructuring and `?//`, `def` with filter and `$value` parameters,
-  `reduce`, `foreach`, `label`/`break`, external `$variables`, and the builtins
-  `empty`, `error`, `error(f)`, `not` and `select(f)`.
-- Not yet available: `..`, every other builtin (`map`, `length`, `range`,
-  ...), assignment and update operators, `@format`, `$__loc__`, `$ENV` and
+  `reduce`, `foreach`, `label`/`break`, external `$variables`, recursive
+  descent `..`, and the builtins `empty`, `error`, `error(f)`, `not`,
+  `select(f)`, `tostring`, `recurse` (0, 1 and 2 arguments), `range` (1, 2
+  and 3 arguments), `while`, `until`, `repeat`, `limit`, `skip`, `first`,
+  `last` and `nth` (each with and without a generator argument). The jq-coded
+  ones are ported verbatim from jq 1.8.2's `builtin.jq`.
+- Not yet available: every other builtin (`map`, `length`, `keys`, ...),
+  paths, assignment and update operators, `@format`, `$__loc__`, `$ENV` and
   modules. Compiling any of them throws `ZaruCompileError` with
   `isUnsupported` set, never a result. See `example/zaru_example.dart`
   (`mise run example`).

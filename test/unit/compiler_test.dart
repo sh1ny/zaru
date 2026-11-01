@@ -219,6 +219,50 @@ jq: error: foo/2 is not defined at <top-level>, line 1, column 5:
       expect(error.message, contains('import'));
     });
 
+    test('names a module could supply are unsupported, not undefined', () {
+      // Without module loading, a name an import or include would bind
+      // cannot be judged undefined: jq resolves it after linking modules.
+      for (final source in [
+        'include "a"; f',
+        r'import "data" as $d; $d',
+        'import "a" as foo; def g: foo::a; g, h',
+        'import "test_bind_order" as check; check::check',
+      ]) {
+        final error = compileError(source);
+        expect(error.isUnsupported, isTrue, reason: source);
+        for (final block in error.diagnostics) {
+          expect(block, startsWith('zaru: unsupported:'), reason: source);
+        }
+      }
+      // Without a module directive an undefined name stays a jq error.
+      expect(compileError('f').isUnsupported, isFalse);
+    });
+
+    test('private jq builtins are unsupported, not undefined', () {
+      // Probed on pinned jq 1.8.2: these resolve (builtin.c CFUNC entries,
+      // whose arity includes the input, and top-level builtin.jq defs) but
+      // `builtins` does not list them.
+      for (final source in [
+        '_negate',
+        '_plus(1; 2)',
+        '_strindices("a")',
+        '_match_impl(1; 2; 3)',
+        '_sort_by_impl(.)',
+        '_flatten(1)',
+        '_assign(.a; 1)',
+        '_modify(.a; 1)',
+      ]) {
+        final error = compileError(source);
+        expect(error.isUnsupported, isTrue, reason: source);
+      }
+      // Local helpers of builtin.jq are not callable from user code.
+      for (final source in ['_repeat', '_while', '_nope']) {
+        final error = compileError(source);
+        expect(error.isUnsupported, isFalse, reason: source);
+        expect(error.message, contains('is not defined'), reason: source);
+      }
+    });
+
     test('deferred and not-yet-implemented constructs are never successes', () {
       for (final source in [
         r'@base64',

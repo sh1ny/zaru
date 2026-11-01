@@ -3,12 +3,13 @@
 ## Unreleased
 
 - Record the observed M1 conformance result: **358 / 781** jq tests passing
-  (11 failed, 412 unsupported, 0 not run, 0 skipped) and **352 / 352** M1
+  (0 failed, 423 unsupported, 0 not run, 0 skipped) and **352 / 352** M1
   acceptance cases. The 423 non-passing cases are all
-  `explicit-deferred-dependency`: 412 are unsupported constructs (builtins
-  beyond M1, update operators, `@format`, `$__loc__`, `import`, `$ENV`) and 11
-  are module/`_strindices` programs rejected with an undefined-name compile
-  error. `test/conformance/floor.json` now lists the 358 passing IDs, so
+  `explicit-deferred-dependency` unsupported constructs (builtins beyond M1,
+  update operators, `@format`, `$__loc__`, module loading, `$ENV`). A program
+  that imports or includes a module is unsupported as a whole rather than
+  reporting module-supplied names as undefined, and jq's private `_` builtins
+  such as `_strindices` are classified like public builtins. `test/conformance/floor.json` now lists the 358 passing IDs, so
   `mise run conformance-gate` rejects any lost pass. README, AGENTS.md and
   docs/compat.md carry the new numerator and the remaining gaps.
 

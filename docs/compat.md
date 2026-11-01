@@ -1,7 +1,7 @@
 # Compatibility baseline
 
-The measured conformance result is **358 / 781 jq tests passing** (11 failed,
-412 unsupported, 0 not run, **0 skipped**), from a fresh `mise run conformance`
+The measured conformance result is **358 / 781 jq tests passing** (0 failed,
+423 unsupported, 0 not run, **0 skipped**), from a fresh `mise run conformance`
 at the end of M1. All 352 M1-acceptance cases pass; every one of the 423
 non-passing cases is classified `explicit-deferred-dependency`. The harness
 executes the real engine (`Zaru.compile`, `runJson`; see [the API](api.md)) for
@@ -105,33 +105,25 @@ Of the 423 cases that do not pass (291 in `jq.test`, 132 in `man.test`), all are
 classified `explicit-deferred-dependency` in the frozen classification; none was
 reclassified and none is skipped (the report records 0 skipped, 0 not run).
 
-**412 unsupported** (the compiler rejects valid jq it does not implement; each
+**423 unsupported** (the compiler rejects valid jq it does not implement; each
 is a distinct `zaru: unsupported:` diagnostic, never a jq error). Counted by
 the kinds of construct named; a case can name several:
 
 | Deferred category | Cases |
 | --- | ---: |
-| jq builtins beyond the M1 set (106 distinct names; most frequent `map/1` 39, `contains/1` 27, `tojson/0` 16, `nan/0` 13, `indices/1` 12, `path/1` 11, `length/0` 10, `setpath/2` 10, `have_decnum/0` 10) | 358 |
+| jq builtins beyond the M1 set (106 distinct names; most frequent `map/1` 39, `contains/1` 27, `tojson/0` 16, `nan/0` 13, `indices/1` 12, `path/1` 11, `length/0` 10, `setpath/2` 10, `have_decnum/0` 10), including the private `_strindices/1` | 360 |
 | Assignment and update operators (`=`, `\|=`, `+=`, `//=`, ...) | 51 |
 | `@format` strings (`@text`, `@base64`, `@base64d`, `@html`, `@uri`, `@urid`, `@sh`, ...) | 11 |
 | `$__loc__` | 3 |
-| `import` directive | 1 |
+| Module loading (`import` and `include` directives) | 10 |
 | `$ENV` | 1 |
 
-**11 failed** (all evaluation fixtures whose program zaru rejects with a
-jq-style "is not defined" compile error instead of the `unsupported` category;
-none passes and none is an expected-error fixture):
-
-| ID | Why it fails |
-| --- | --- |
-| `jq.test:1553`, `jq.test:1557` | `_strindices/1`, a private native builtin used by `indices`/`index`, is not defined. |
-| `jq.test:1900`, `1904`, `1908`, `1921`, `1925`, `1929`, `1993` | Module `import`/`include` programs: module loading is not implemented, so the imported names (`foo::a`, `bar::b`, `a`, `e`, `check::check`, ...) are reported as undefined. |
-| `jq.test:1912`, `jq.test:1917` | Data imports (`import "data" as $d`): the `$d`/`$e`/`$a`/`$b` bindings are reported undefined. |
-
-These eleven are known gaps in unsupported-versus-undefined classification for
-module programs and a private builtin: the diagnostic category is not `unsupported`
-but they still never count as passes, and the cause is the deferred module and
-builtin surface rather than an intentional divergence.
+No case fails outright. Programs that import or include modules are
+unsupported as a whole, because jq resolves their names only after linking the
+modules; zaru does not report those names as undefined. jq's private builtins
+(`_strindices`, `_match_impl`, the `_plus`-style operator bindings and the
+other `_`-prefixed names that `builtins` omits) are classified the same way as
+public builtins, so `jq.test:1553` and `jq.test:1557` are unsupported too.
 
 ## Implementation gaps, not intentional divergences
 

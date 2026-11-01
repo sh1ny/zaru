@@ -235,3 +235,36 @@ const Set<String> jqBuiltinNames = {
   'y1/0',
   'yn/2',
 };
+
+/// jq 1.8.2's private builtins, as `name/arity`, which `builtins` omits.
+///
+/// They resolve in user programs like any builtin: the `_`-prefixed
+/// `CFUNC` entries of pinned `src/builtin.c` (lines 1976-2027 and the
+/// `BINOPS` of `src/builtin.h`; a C arity counts the input, so it is one
+/// less here) and the top-level `_` definitions of `src/builtin.jq` (lines
+/// 14-15 and 70). Local helpers such as `_repeat` are not callable and are
+/// absent. Like [jqBuiltinNames], this only classifies names as unsupported.
+const Set<String> jqPrivateBuiltinNames = {
+  '_assign/2',
+  '_divide/2',
+  '_equal/2',
+  '_flatten/1',
+  '_greater/2',
+  '_greatereq/2',
+  '_group_by_impl/1',
+  '_less/2',
+  '_lesseq/2',
+  '_match_impl/3',
+  '_max_by_impl/1',
+  '_min_by_impl/1',
+  '_minus/2',
+  '_mod/2',
+  '_modify/2',
+  '_multiply/2',
+  '_negate/0',
+  '_notequal/2',
+  '_plus/2',
+  '_sort_by_impl/1',
+  '_strindices/1',
+  '_unique_by_impl/1',
+};

@@ -60,8 +60,16 @@ CompiledProgram compileSource(String source, Set<String> variables) {
   final Op root = lowering.lowerProgram(program, scope);
   lowering.lowerReferencedBodies();
 
+  // jq resolves names only after linking imported and included modules. Module
+  // loading is unsupported, so any name such a program leaves undefined may be
+  // one a module would supply: the program is unsupported, not a jq error.
+  final loadsModules = lowering.unsupported.any(
+    (construct) =>
+        construct.kind == UnsupportedKind.importDirective ||
+        construct.kind == UnsupportedKind.includeDirective,
+  );
   final semantic = lowering.semanticDiagnostics();
-  if (semantic.isNotEmpty) {
+  if (semantic.isNotEmpty && !loadsModules) {
     throw _error(DiagnosticReport(parsed.source, semantic), unsupported: false);
   }
   if (lowering.unsupported.isNotEmpty) {
@@ -597,7 +605,8 @@ final class _Lowering {
         for (final argument in node.arguments) _lowerArgument(argument, scope),
       ]);
     }
-    if (jqBuiltinNames.contains(signature)) {
+    if (jqBuiltinNames.contains(signature) ||
+        jqPrivateBuiltinNames.contains(signature)) {
       for (final argument in node.arguments) {
         _lowerArgument(argument, scope);
       }
