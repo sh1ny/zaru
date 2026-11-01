@@ -156,8 +156,8 @@ All scenarios are planned and unimplemented. `red` is not a claim of an observed
 
 ## 8. Verify milestone integration
 
-- [ ] 8.1 Run normal tests, analysis and formatting through official MCP/mise checks, plus browser-safe core tests under Chrome/dart2js and Chrome/dart2wasm. Verify no dart:io/native reference dependency enters lib or browser tests, the example executes on the VM, and the unchanged version-only CLI compiles. These are integration checks, not deferred unit-test or documentation work.
-- [ ] 8.2 Smoke real reuse, native versus JSON input/origin, lazy input/argument errors, streams/late errors, huge recursive prefixes, number/context/type/zero boundaries, Unicode indexing-versus-slicing, deep codec offsets and native/decoded projection reuse. Verify mapped rows, both compiler tasks, all M1-gating versus full-report CI roles, no-jq gate, numerator/floor and strict validation; claim neither M2/M3 behavior nor GitHub protection enforcement.
+- [x] 8.1 Run normal tests, analysis and formatting through official MCP/mise checks, plus browser-safe core tests under Chrome/dart2js and Chrome/dart2wasm. Verify no dart:io/native reference dependency enters lib or browser tests, the example executes on the VM, and the unchanged version-only CLI compiles. These are integration checks, not deferred unit-test or documentation work.
+- [x] 8.2 Smoke real reuse, native versus JSON input/origin, lazy input/argument errors, streams/late errors, huge recursive prefixes, number/context/type/zero boundaries, Unicode indexing-versus-slicing, deep codec offsets and native/decoded projection reuse. Verify mapped rows, both compiler tasks, all M1-gating versus full-report CI roles, no-jq gate, numerator/floor and strict validation; claim neither M2/M3 behavior nor GitHub protection enforcement.
 
 ## Workflow follow-up
 
