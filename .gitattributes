@@ -2,3 +2,4 @@
 test/conformance/jq.test -text
 test/conformance/man.test -text
 test/conformance/COPYING -text
+test/conformance/reference/*.json -text

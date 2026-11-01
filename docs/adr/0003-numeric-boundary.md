@@ -1,0 +1,24 @@
+# ADR 0003: Exact numbers at the jq boundary
+
+Status: accepted for M1; supersedes the numeric-boundary proposal in ADR 0002. ADR 0002 remains unchanged and continues to govern lazy closure-tree evaluation and path-aware execution.
+
+## Context
+
+jq preserves decimal literal values beyond binary64 precision and distinguishes literal-origin from computed numbers. Dart's native numeric representations also differ across VM, WebAssembly, and dart2js. Requiring a wrapper for every public number would make ordinary JSON-shaped values cumbersome; narrowing every literal to `num` before evaluation would lose information and change jq comparisons.
+
+The approved boundary is therefore an ordinary Dart JSON-shaped API with a narrow exact-number exception, plus a private origin-aware representation inside compilation/evaluation. This ADR records that boundary; it does not implement it.
+
+## Decision
+
+- The public boundary uses `null`, `bool`, `String`, `num`, lists, and string-keyed maps, plus final `ZaruNumber` only where a finite literal cannot be faithfully represented by ordinary public numeric output. `ZaruNumber` exposes `parse`, canonical `literal`, `toDouble`, `toString`, value equality, and `hashCode`; it is neither `num` nor `Comparable`. Its equality/hash use normalized exact decimal value, ignoring scale and zero sign, and compare only to another `ZaruNumber`.
+- Compilation retains literal spelling and origin privately. `runJson` decodes one jq JSON value lazily and preserves literal origin through evaluation; there is no public `fromJson`. `run` ingests native Dart data: finite values exactly representable as binary64 are computed-origin values, preserving native signed zero and compatible storage/subtype on pass-through. A native integer that fails exact binary64 round-trip enters as exact literal-origin data. Already-rounded caller values cannot be repaired. Root, nested, and argument positions accept `ZaruNumber` without promising its object identity after evaluation.
+- Canonical literal text follows pinned `decNumberFromString` / `decNumberToString` behavior without trimming; conversion uses jq's decimal64-derived context, 17 significant digits with half-even reduction, then correctly rounded binary64 conversion. Thus `0e1000000000` canonicalizes to `0E+999999999`, `1e-1000000000` remains `1E-1000000000`, and finite `1e1000` remains exact text while `toDouble()` is infinite; no exponent-sized padding is allocated. Unary negation retains literal precision and jq canonicalizes negated literal zero to positive zero; computed negation follows binary64 signed-zero behavior. Literal/literal comparisons are decimal; comparisons involving computed values use jq's double fallback. These are evaluator semantics, not fixture-oracle comparison rules.
+- Automatic final-output classification compares canonical literal text `C` with jq's computed printing of converted value `D`: export as `ZaruNumber` when `C` differs from that computed spelling or integer magnitude exceeds `9007199254740991`; otherwise safe integral literals other than negative zero narrow to `int` and other eligible literals to `double`. Arithmetic outputs are doubles on VM and wasm. VM/wasm have distinct `int` and `double`; dart2js can have overlapping number subtypes. Target subtype differences must not alter jq semantics.
+- `toJson` prints finite literals from canonical text and computed numbers using jq's computed-number spelling. It preserves literal value/spelling, not computed origin, and cannot preserve nonfinite values or over-depth output as valid JSON. NaN prints as `null`; computed infinities clamp to jq's signed maximum finite double; negative zero prints `-0` on every target.
+- A single compiled jq expression/pipe preserves private origin. Returning a public `num` and passing it to a later `run` makes it computed-origin. M3 argument sources that require literal preservation must decode directly into the private execution environment rather than through public `num`.
+
+## Consequences
+
+This boundary preserves ordinary Dart ergonomics while making precision loss explicit where it matters. It requires a private decimal representation and delayed public narrowing. It does not make public scalar or container identity generally stable; container projection identity, ownership, and reused native storage are governed separately by D8. Numeric parsing/printing details, accepted jq JSON extensions, Unicode behavior, and nonfinite rules are specified in the change's D4 and D7 decisions; deep codec limits and projection reuse are specified in D8. Those detailed contracts are not duplicated here.
+
+The ADR supersedes only ADR 0002's unimplemented numeric-boundary proposal. It does not alter ADR 0002 in place, introduce a runtime dependency, or authorize evaluator implementation before the reference census and classification are frozen.

@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   checks:
-    name: Analyze, format, tests, and conformance
+    name: checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,9 +26,6 @@ jobs:
         run: mise run format --check
       - name: Run normal tests
         run: mise run test
-      # M0 has no evaluator: this gate intentionally reports the red baseline.
-      - name: Run jq conformance
-        run: mise run conformance
 
   compile:
     name: Compile CLI (${{ matrix.os }})
@@ -49,8 +46,8 @@ jobs:
       - name: Compile version-only CLI
         run: mise run compile
 
-  chrome:
-    name: Chrome core tests
+  core-dart2js:
+    name: core-dart2js
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,5 +58,62 @@ jobs:
         run: mise install
       - name: Install dependencies
         run: mise run pub
-      - name: Run browser-safe tests
+      - name: Run browser-safe dart2js tests
         run: mise run web-test
+
+  core-dart2wasm:
+    name: core-dart2wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Run browser-safe dart2wasm tests
+        run: mise run web-test-wasm
+
+  # M1 acceptance gate: every M1-classified case plus the passed-ID floor.
+  # Needs no jq binary; it verifies the checked-in reference baseline.
+  conformance-gate:
+    name: conformance-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Run the M1 conformance gate
+        run: mise run conformance-gate
+
+  # The full 781-case report. It fails while any case fails and is not
+  # masked (no continue-on-error): the red status is the honest measurement.
+  # M1 acceptance requires every other context, not this one.
+  full-conformance:
+    name: full-conformance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install: false
+      - name: Install toolchain
+        run: mise install
+      - name: Install dependencies
+        run: mise run pub
+      - name: Run the full jq conformance corpus
+        run: mise run conformance
+      - name: Upload the conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-report
+          path: build/conformance-report.json
+          if-no-files-found: warn

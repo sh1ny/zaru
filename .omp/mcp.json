@@ -4,7 +4,10 @@
     "dart": {
       "type": "stdio",
       "command": "dart",
-      "args": ["mcp-server", "--enable=run_tests,dart_format,dart_fix"]
+      "args": ["mcp-server", "--enable=run_tests,dart_format,dart_fix"],
+      "env": {
+        "DART_DATA_HOME": ".dart_tool/dart-data"
+      }
     }
   }
 }

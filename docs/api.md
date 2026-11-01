@@ -1,40 +1,75 @@
-# API direction
+# API
 
-**None of the filter APIs below are available in M0.** These are the intended
-public API shapes, not runnable examples or exported declarations. M0 does not
-parse, compile, evaluate, or serialize jq results.
+**Implemented (through group 6 of `implement-core-language`):** `Zaru.compile`, `ZaruFilter.run` and `runJson`, `ZaruCompileError`, `ZaruRuntimeError`, `ZaruMissingArgumentError`, `ZaruNumber` and `Zaru.toJson`, for the core expression subset listed under "Implemented core engine" below. Everything else in the jq language (the builtins outside the list under "Implemented core engine", assignment, `@format`, `$ENV`, `$__loc__`, modules) is **not** implemented and fails compilation with `ZaruCompileError.isUnsupported`. The command-line tool is still `--version` only.
 
-## Compile once, run lazily
+The sections below keep the binding contracts of the `implement-core-language` change. Where a sentence says "will", that part is still planned; the "Implemented" sections are verified by `test/unit`. No `fromJson` API exists, and none is planned: converting JSON text to ordinary `num` before evaluation would erase literal origin.
 
-- `Zaru.compile(String)` returns a compiled filter.
-- `filter.run(Object?, {Map<String, Object?> args = const {}})` returns a lazy
-  `Iterable<Object?>`.
-- `Zaru.toJson(value, {bool compact, bool sortKeys, String indent})` serializes a
-  value with the requested output formatting. Option defaults are not specified
-  in M0.
+## Compile and execute
 
-Compilation will report invalid source before evaluation. A compiled filter can
-be reused with different input values and variable bindings supplied through
-`args`. jq output is a sequence: no results is distinct from one `null` result.
-Calling `run` is not a promise that all evaluation has completed; consuming the
-iterable performs work and can raise a runtime error after yielding results.
+`Zaru.compile(String source, {Set<String> variables = const {}})` compiles one reusable filter and returns a compiled-filter object. It reports invalid source, undefined names, invalid arities, and out-of-scope labels at compile time. `variables` declares jq external variable names; declarations and their run-specific values are separate.
 
-The public value boundary uses ordinary JSON-shaped Dart values: `null`, `bool`,
-`String`, `num`, lists, and maps with string keys. It must not require users to
-wrap every input in a custom JSON hierarchy. Inputs are not mutated by updates.
-A `BigInt` is not an ordinary JSON number, and exact numeric literal handling
-cannot silently round values to fit `double`. The internal representation and
-VM/browser boundary are discussed in [ADR 0002](adr/0002-evaluation-model.md).
+A compiled filter (`ZaruFilter`) exposes:
 
-## Typed errors
+```dart
+Iterable<Object?> run(
+  Object? input, {
+  Map<String, Object?> args = const {},
+});
 
-- `ZaruCompileError(line, col, message)` describes invalid filter source.
-- `ZaruRuntimeError(message, value)` describes a failure during evaluation and
-  the associated value.
+Iterable<Object?> runJson(
+  String text, {
+  Map<String, Object?> args = const {},
+});
+```
 
-These error types are also planned, not implemented. Source coordinate conventions
-and the complete serialization/error contracts will be specified alongside their
-implementations rather than guessed in M0.
+`run` accepts JSON-shaped native Dart values and `ZaruNumber` at root, nested, and argument positions. `runJson` accepts exactly one jq JSON value as source text and decodes it directly into private origin-bearing values before evaluation. Neither call eagerly evaluates the filter: iteration performs the work. Runs and iterators have independent environments. Result order and duplicates are significant; an empty stream is not one `null` result. Stopping after a prefix does not evaluate the unused suffix. A runtime error can occur after earlier results have been observed, and it terminates that iterator; a subsequent `moveNext` returns `false` rather than replaying the failure.
+
+Missing declared argument values fail on the first `moveNext`, before any filter result. Undeclared variable references fail compilation. Empty or whitespace-only `runJson` input is a missing single value and raises `FormatException`; it is not an input stream. A future CLI may treat empty stdin as zero inputs, but that stream behavior is separate from this API. Malformed, trailing, or multiple JSON values likewise raise `FormatException` on first iteration, with the original source, zero-based UTF-16 `offset`, and jq line/UTF-8-byte-column information where applicable. No public `fromJson` API is provided: converting JSON text to ordinary `num` before evaluation would erase literal origin.
+
+## Public values and numbers
+
+Ordinary public values are JSON-shaped Dart values: `null`, `bool`, `String`, `num`, lists, and string-keyed maps. `ZaruNumber` is the narrow exception for finite numeric literals whose exact value or jq-preserved canonical spelling would be lost by narrowing to `num`. It is planned as an immutable final type with `parse(String)`, `literal`, `toDouble()`, `toString()`, value equality, and `hashCode`. It is neither a `num` subtype nor `Comparable`; equality and hashing compare exact mathematical decimal value, ignoring equivalent scale and zero sign, and equality is only with another `ZaruNumber`. `parse` accepts one finite jq numeric token and throws `FormatException` for malformed input or a value jq normalizes to nonfinite.
+
+The private engine retains literal/computed origin until evaluation completes and public output is selected. Untouched literal values are canonicalized with jq's `decNumberFromString` / `decNumberToString` behavior, without trimming or exponent-sized padding. Final output is `ZaruNumber` when canonical literal text differs from jq's computed printing of the converted value or integer magnitude exceeds `9007199254740991`; otherwise safe integral literals except negative zero narrow to `int`, and other eligible literals to `double`. This is not based on whether Dart happened to represent an input as `int` or `double`.
+
+Native finite values exactly representable as binary64 enter as computed-origin numbers and retain signed zero. A native integer whose exact binary64 round-trip fails enters with exact literal origin; a value already rounded by its caller cannot be repaired. Compatible native pass-through values retain their original `num` subtype/storage. Arithmetic outputs are `double` on VM and wasm. VM/wasm distinguish `int` and `double`; dart2js can have overlapping numeric subtypes, so portable subtype behavior is not promised there. None of these host subtype differences changes jq semantics.
+
+Jq arithmetic first reduces literal operands through its decimal64-derived context (17 significant digits, half-even rounding) and then converts with correctly rounded binary64 semantics. Literal/literal comparison uses decimal values; any comparison involving computed origin follows jq's double fallback. Unary negation retains literal precision and jq's canonicalization of negated literal zero to positive zero; computed negation follows binary64 signed-zero behavior. Thus numeric evaluation, public `ZaruNumber` equality, and fixture-oracle comparison are distinct operations. Re-entering a binary64-compatible public `num` through a later `run` makes it computed-origin; the exact-native-integer exception still applies, while a single compiled expression preserves origin internally. `toJson` preserves literal value and spelling where representable, not computed origin or nonfinite values. M3 options such as `--argjson` that must preserve literal origin require a private decoder-to-environment path.
+
+For detailed canonicalization, conversion, exponent-edge, signed-zero, and native-origin rules see [D4](../openspec/changes/implement-core-language/design.md#d4-preserve-exceptional-numbers-through-an-explicit-narrow-boundary). The jq JSON and Unicode boundary is in [D7](../openspec/changes/implement-core-language/design.md#d7-specify-unicode-and-nonfinite-boundaries-explicitly); iterative codecs and native projection ownership are in [D8](../openspec/changes/implement-core-language/design.md#d8-bound-deep-codec-work-and-public-projection-reuse).
+
+## JSON decoding and printing
+
+The decoder follows pinned jq `jv_parse`, not RFC-only `jsonDecode`: it accepts a leading BOM, jq's accepted numeric extensions such as `+1`, `01`, `.5`, and `1.`, and NaN/infinity spellings. It normalizes raw lone UTF-16 units and escaped lone-low-surrogate values to U+FFFD; a lone high-surrogate escape is invalid. Native nonfinite numbers are retained as numeric kinds internally and export as native NaN/infinity.
+
+`Zaru.toJson(value, {bool compact, bool sortKeys, String indent})` prints jq-compatible compact or indented output, optional sorted keys, and jq escaping. Exact option defaults are specified by implementation, not M0. NaN prints as `null`; computed infinities clamp to jq's signed maximum finite double; negative zero prints as `-0`. Printing starts at root depth zero; a value deeper than 10000 is replaced with the unquoted text `<skipped: too deep>` without traversing that subtree. This jq-compatible marker makes the resulting text non-JSON and is not a successful lossless encoding.
+
+Parsing, normalization, export, and printing use explicit work stacks. The JSON parser rejects a container opening once its pending parser slots reach 10000, counting both containers and object-key slots; arrays accept depth 10000 and reject 10001, while nested keyed objects accept 5000 and reject 5001. A decoding failure raises `FormatException` on first iteration with original source and zero-based UTF-16 offset; its message includes jq's reason and one-based line/UTF-8-byte column. Native and engine-constructed containers do not inherit the parser depth budget.
+
+Engine-created lists and maps are immutable before exposure. Each immutable internal container owns and reuses one lazily created immutable public projection, so repeated yields of that internal subtree expose identical public containers without a global strong-key cache. Changed projections are distinct. Public-compatible caller-owned container storage can pass through by reference without freezing, memoization, or num-subtype conversion; caller mutation remains caller-owned and is not a snapshot guarantee. When ingestion must normalize values or keys, it rebuilds only changed paths into owned containers while retaining private numeric origin. Scalar `ZaruNumber` identity is unspecified. These projection guarantees are governed by [D8](../openspec/changes/implement-core-language/design.md#d8-bound-deep-codec-work-and-public-projection-reuse).
+
+## Implemented numeric and printing surface
+
+These declarations (the numeric and printing surface) are exported from `package:zaru/zaru.dart`:
+
+- `final class ZaruNumber`: `ZaruNumber.parse(String)` (jq numeric grammar, no trimming; throws `FormatException` for malformed text, NaN, Infinity, or a token whose exponent overflows jq's decimal context), `String get literal` (jq canonical text, scale preserved: `100e-2` is `1.00`, `1e2` is `1E+2`), `double toDouble()` (17 significant digits half-even, then correctly rounded binary64; infinite if beyond the binary64 range), `toString()` (same as `literal`), and `==`/`hashCode` by exact decimal value regardless of scale or zero sign. It is never equal to a native number and is not `Comparable`.
+- `Zaru.toJson(Object? value, {bool compact = true, bool sortKeys = false, String indent = '  '})`. Accepts `null`, `bool`, `String`, `num`, `ZaruNumber`, `List`, and `Map` with `String` keys. Anything else, including a map with a non-`String` key, throws `ArgumentError`; only visited values are inspected. Compact output has no whitespace; pretty output follows jq (`"k": v`, empty containers as `[]`/`{}`, `indent` repeated per level, any string such as `'\t'`). `sortKeys` orders keys by code point (UTF-8 byte order). Unpaired surrogates print as U+FFFD, and map keys that normalize to the same text collapse (first position, last value). Computed numbers print with jq's spelling (`1e+17`, `1e-05`, `1.5e-07`); integral doubles print without a fraction; NaN prints `null`; infinities clamp to `+-1.7976931348623157e+308`; `-0.0` prints `-0`; `ZaruNumber` and exact native integers beyond 2^53 print exactly. A value deeper than 10000 (root is depth zero) prints as the unquoted text `<skipped: too deep>`, which makes the output non-JSON.
+
+The jq-compatible decoder (`decodeJqJson`) and fixture oracle are internal (`lib/src`, `test/support`); the decoder is reachable publicly only through `ZaruFilter.runJson`. `FormatException` from the decoder carries the original source, the zero-based UTF-16 `offset` of the character being scanned when jq detects the error (source length at end of input; for `Unexpected extra JSON values`, the character that completes the extra value), and a message such as `Exceeds depth limit for parsing at line 1, column 10001`. The BOM counts toward `offset` but not toward the column.
+
+## Errors and diagnostics
+
+`ZaruCompileError` exposes first-diagnostic `line`, `col`, `endLine`, `endCol`, and `message`, plus an immutable ordered list of rendered `diagnostics`. Coordinates and spans are one-based UTF-8-byte positions with exclusive ends, following jq conventions, including EOF handling. Diagnostics contain jq-compatible excerpts, expected-token labels, and caret widths. Multiple compiler blocks can be retained: the public scalar fields describe the first diagnostic, while the conformance adapter selects the last block prefixed `jq: error` to match jq's test callback. Diagnostics derive from grammar context and source positions, never fixture IDs or complete source-text lookups.
+
+Two resource bounds apply to compile errors (see [compatibility](compat.md)). A program nested deeper than 256 levels (pipe and comma chains are wide, not deep, and do not count) fails with `ZaruCompileError` (`isUnsupported` false) whose diagnostic is `zaru: error: program nests deeper than 256 levels at <top-level>, line L, column C:`; the diagnostic does not start with `jq: error`. A report keeps at most about 1 MiB of rendered `diagnostics` text, then ends with the block `zaru: error: N more diagnostics omitted`, and a source excerpt is a window of at most 240 bytes with `...` marking each cut end; reports and lines within the bounds are rendered as jq does.
+
+`ZaruRuntimeError` carries the jq error value, including `null`; runtime failures happen during iteration. `try`/`catch` and optional access handle data errors but not compile failures or lexical `break` signals (pinned jq 1.8.2 lets `try` catch a `break`; zaru deliberately does not, see [compatibility](compat.md)). Previously yielded values remain observable. Internal unsupported-construct classification is distinct from supported semantic compile errors; an unsupported import or format operation cannot pass a fixture that expects a compile error. M2 predicate policy remains deferred: it does not create M1 support or a conformance pass.
+
+`ZaruCompileError` has three outcomes, in this precedence: a jq parse error (lexical, grammar, or a constant object key of the wrong type); a jq semantic error found after a clean parse (`$name is not defined`, `name/arity is not defined`, `$*label-name is not defined`, reported in the order jq compiles the expression: an index reports its key before its target, a `reduce`/`foreach` its initial state before its source, and a function body or a call's filter argument is a separate unit that is checked only when the enclosing code has no error; a definition nothing uses is dropped unchecked, as in jq; a program of only definitions is `Top-level program not given (try ".")`); and, only when neither applies, an *unsupported* error (`isUnsupported` is true, every block starts with `zaru: unsupported:`, never `jq: error`). The unsupported category covers constructs the parser recognizes but this release does not evaluate, and any jq 1.8.2 builtin (from an embedded `name/arity` table) that this release does not implement. It can never satisfy a compile-error fixture. A name that is neither user-visible nor in jq's table is a semantic error, as is a known name with the wrong arity.
+
+## Composition and ownership
+
+Pipes within a compiled filter preserve private literal origin. Passing a public result to a later filter applies native ingestion again: binary64-compatible numbers become computed-origin, while a native integer that fails the exact binary64 round-trip takes the exact-literal exception. Use `ZaruNumber` or `runJson` when literal origin must be supplied explicitly. Container projection identity is guaranteed only for the same owned internal node; general caller-container or scalar identity is not promised. See the [architecture index](../openspec/architecture.md) and the numeric-boundary [ADR 0003](adr/0003-numeric-boundary.md).
 
 ## Current CLI boundary
 
@@ -44,7 +79,14 @@ The only M0 CLI operation is:
 mise run cli -- --version
 ```
 
-A version response identifies the package scaffold, not a jq engine. Filter
-execution, jq flags, and JSON input/output processing are unavailable. There is
-no benchmark implementation or MCP product server. The Dart SDK MCP configuration
-is contributor tooling, not a zaru service.
+A version response identifies the package scaffold, not a jq engine. Filter execution, jq flags, and CLI JSON input/output processing are unavailable. The Dart SDK MCP configuration is contributor tooling, not a zaru service; no benchmark implementation or product MCP server is provided.
+
+## Implemented core engine
+
+Supported: identity, `.name`, `."str"`, `.[expr]`, `.[from:to]` and `.[]` with the `?` forms, `null`/`true`/`false`, numbers and strings (with `\(...)` interpolation), `[...]` and `{...}` construction, `|`, `,`, unary minus, `+ - * / %`, `== != < <= > >=`, `and`, `or`, `//`, `if`/`elif`/`else`, `try`/`catch` and postfix `?`, `expr as pattern | body` including array/object destructuring and `?//` alternatives, `reduce` and `foreach` (two- and three-clause, with patterns), `def` with filter and `$value` parameters (recursive, shadowing, closing over the lexical scope), `label $x | ...` with `break $x`, declared external variables, recursive descent `..`, and the builtins `empty`, `not`, `error/0,1`, `tostring`, `select`, `recurse/0,1,2`, `range/1,2,3`, `while`, `until`, `limit`, `skip`, `first/0,1`, `last/0,1`, `nth/1,2` and `repeat`. The jq-coded builtins are hosted verbatim from the pinned `builtin.jq` ([provenance](compatibility/builtin-provenance.md)); only `empty`, `not`, `error/0`, `tostring`, `range/2` and `last/1` are native, as they are in jq. A user definition of the same `name/arity` shadows the builtin, which keeps calling its own siblings. `format` is not a public callable: interpolation is its only use. Generator ordering follows jq (for example the right operand of an arithmetic operator varies slowest, while the first object entry and the first slice bound vary slowest); error values and messages come from the pinned jq 1.8.2 and are not translated.
+
+Execution model and resources: a compiled filter is an immutable tree. Every `iterator` owns one explicit-continuation machine (current operation, input, environment, continuation frames, a choice stack); nothing recurses on the host stack, so deep data and long pipelines use heap proportional to the active continuation, not host stack. The right side of a pipe, comma or `if` branch runs in tail position. Iteration is pull-based: a prefix never evaluates the suffix, two iterators (even over one iterable) never share state, and iterating an `Iterable` again re-runs the filter. An uncaught jq error is thrown from `moveNext` as `ZaruRuntimeError` after the results before it; the iterator is then finished (`moveNext` is `false`) and nothing is replayed. `try` handles errors raised by its body only, not errors raised downstream of its outputs. Functions are closures: a filter argument runs against the input of each use, in the environment of its call site; the body of a definition sees the scope of the definition, not of the caller; a `$name` parameter is also callable as the filter `name`, and several value parameters multiply with the first varying slowest. A call in tail position (the right side of a pipe or comma, an `if` or `elif`/`else` branch, a function body that ends in a call) replaces the finished frame, so a million-step recursion (`repeat`, `range/3`, `while`, `until`, `recurse`, or a user definition) keeps constant continuation and choice state on the VM, dart2js and dart2wasm, while a genuinely pending alternative (a comma's right side, the rest of a generator) is kept, and a parameter forwarded unchanged does not nest a closure per level. `reduce` and `foreach` keep their accumulator in a cell private to one activation; it holds only immutable engine values, so a yielded accumulator can never be changed by a consumer or by the next iteration. `label` creates a fresh identity per activation and `break` unwinds only to that activation; it is a control signal that `try`, `?` and `//` never see. With `?//` an error raised after the first alternative matched (in the pattern, in the body, or downstream of the whole expression, as in jq) retries the next alternative with every variable of the other alternatives null; the last alternative's error is the filter's error. Input of an unsupported Dart type or a map with a non-`String` key throws `ArgumentError`, a missing declared argument throws `ZaruMissingArgumentError`, and malformed `runJson` text throws `FormatException`, all on the first `moveNext` and before any output.
+
+Ownership: `run`/`runJson` never mutate input. Native input is ingested iteratively. A subtree made only of `null`, `bool`, normalized strings, exactly representable `num` and containers of those is passed through **by reference**, so a result can be the caller's own `List`/`Map` (no copy, freezing or memoization; mutating caller data during a run is not a supported snapshot). A subtree containing a `ZaruNumber`, an integer binary64 cannot hold, a string or key with a lone surrogate, or keys that collide after normalization is rebuilt along the changed path only into an engine-owned container that keeps private numeric literal origin. Engine-created containers are immutable; the first export of a container creates its immutable `List`/`Map` projection once and stores it on that node, so repeated or shared subtrees export to the identical object, changed containers get distinct projections, and a compiled literal such as `[1]` is built once and shared by every run. Mutating an exported engine container throws `UnsupportedError`. The projection is reachable only through its node (no global or per-run table), so it is released with the value. Scalar `ZaruNumber` identity is unspecified.
+
+Resource limits (all raise catchable jq errors): equality and ordering fail beyond depth 10000 (`Equality check too deep`, `Comparison too deep`; the same container compared with `==` or `!=` is equal without a walk), recursive object merge fails beyond depth 10000 (`Object merge too deep`), and string repetition fails when the UTF-8 result would reach 2147483647 bytes (`Repeat string result too long`). Equality, ordering, merge, ingestion and projection use explicit stacks. `toJson` still prints values deeper than 10000 as `<skipped: too deep>`.

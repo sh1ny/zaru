@@ -1,0 +1,11 @@
+{
+  "format": "zaru-jq-reference-integrity-v1",
+  "census": {
+    "path": "test/conformance/reference/census.json",
+    "sha256": "e32c02bb9f611dfeb5164a8357988462210eda0daa691d03d3f7190825ad6441"
+  },
+  "classification": {
+    "path": "test/conformance/reference/classification.json",
+    "sha256": "f732b45fa5a3679fae4c824decff9d4ae493c4487bef61a48dea15fa74ebf42d"
+  }
+}
