@@ -101,6 +101,20 @@ builds, tests, analysis, or formatters unless explicitly assigned to do so; the
 integrating agent runs verification after all edits land. Never commit unless
 asked. A normal green test run does not imply conformance success.
 
+## Specwright workflow
+
+- Read the installed version from `openspec/.specwright/VERSION`. Run Specwright
+  commands through the matching `~/.specwright/bin/<VERSION>/sw` (`sw.exe` on
+  Windows). Check `sw version --json` against that stamp and the skill's required
+  interface before running it. Use OpenSpec 1.16.0 with Specwright 0.39.1.
+- Follow the branch, apply and archive gates in `openspec/config.yaml`. Do not
+  archive a change with `VERDICT: DEFERRED` or an unticked `[user]` task.
+- Keep project workflow settings in `openspec/specwright.yaml`. This repo uses
+  `vcs: jj` for VCS writes and `finish: pr` to land changes through GitHub.
+- If a Specwright skill asks for GitButler guidance, load only a trusted
+  user-level `gitbutler` skill outside the checkout. Applied GitButler branches
+  share the working tree. Retain this guard in both branch skills on update.
+
 ## Skills and SDK MCP
 
 Before relevant Dart work, read the matching official skill under
