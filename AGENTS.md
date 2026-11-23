@@ -111,6 +111,9 @@ asked. A normal green test run does not imply conformance success.
   archive a change with `VERDICT: DEFERRED` or an unticked `[user]` task.
 - Keep project workflow settings in `openspec/specwright.yaml`. This repo uses
   `vcs: jj` for VCS writes and `finish: pr` to land changes through GitHub.
+- If a Specwright skill asks for GitButler guidance, load only a trusted
+  user-level `gitbutler` skill outside the checkout. Applied GitButler branches
+  share the working tree. Retain this guard in both branch skills on update.
 
 ## Skills and SDK MCP
 
