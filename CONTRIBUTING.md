@@ -26,14 +26,17 @@ mise install
 mise run pub
 mise run test           # the normal tests
 mise run conformance    # runs all 781 pinned jq cases; doesn't need jq installed
+mise run conformance-gate  # the M1 acceptance check
 ```
+
+`mise run conformance` reports the full corpus and exits nonzero while any case is unsupported. `mise run conformance-gate` must pass.
 
 ## Making a change
 
 - Branch from `main` and keep each pull request to one change.
 - **Tests.** Add or update tests for behaviour you change. A test must never fail because a machine is slow: wait for an event or a result, never sleep for a fixed time.
-- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(map): show transits on Reserve`. If you get it wrong, a maintainer will fix it when merging.
-- **Write it yourself.** Don't copy code from other projects, including translating it from another language. Adding a dependency is fine when its licence is compatible, but mention it in the pull request.
+- **Commit messages** follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, for example `fix(builtins): preserve null values in arrays`. If you get it wrong, a maintainer will fix it when merging.
+- **Write it yourself.** Don't copy code from other projects, including translating it from another language. A development dependency is fine when its licence is compatible, but mention it in the pull request.
 
 ### Rules specific to zaru
 
@@ -46,7 +49,7 @@ mise run conformance    # runs all 781 pinned jq cases; doesn't need jq installe
 
 The template asks for three things: a short **Summary**, what it's **Linked** to (an issue, or "none"), and how you **tested** it. Everything else is optional.
 
-CI runs on every pull request. If it fails and you can't see why, say so in the pull request and we'll help. A maintainer reviews and merges.
+CI runs on every pull request. The `full-conformance` job stays red while any case is unsupported; the `conformance-gate` job must pass. If another check fails and you can't see why, say so in the pull request and we'll help. A maintainer reviews and merges.
 
 ## Licence
 
