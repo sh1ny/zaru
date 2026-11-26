@@ -1,0 +1,39 @@
+name: Different result from jq
+description: zaru gives a different result or error than jq 1.8.2 for the same filter.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Check docs/compat.md first: features listed there as unsupported fail on purpose with a compile error.
+        Only the filter is required. A filter, an input and both outputs are enough for us to add a test.
+  - type: textarea
+    id: filter
+    attributes:
+      label: Filter
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input
+      description: Optional. The JSON you ran it on.
+      render: json
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Optional. What jq 1.8.2 prints (`jq --version` to check).
+      render: text
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Optional. What zaru returns or the error it throws.
+      render: text
+  - type: input
+    id: environment
+    attributes:
+      label: Version and environment
+      description: Optional. zaru version, and where you ran it (Dart VM, Flutter, dart2js, dart2wasm, CLI).
